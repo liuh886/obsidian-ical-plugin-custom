@@ -1,8 +1,10 @@
-import { Plugin, Notice } from "obsidian";
+import { Plugin, Notice, TFile } from "obsidian";
 import { Settings, DEFAULT_SETTINGS } from "./Model/Settings";
 import { SettingsManager } from "./SettingsManager";
 import { IcalService } from "./Service/IcalService";
 import { FileClient } from "./FileClient";
+import { TaskIndex } from "./Service/TaskIndex";
+import { TaskFinder } from "./Service/TaskFinder";
 import { logger } from "./Logger";
 import { SettingsTab } from "./SettingsTab";
 
@@ -11,15 +13,26 @@ export default class ObsidianIcalPlugin extends Plugin {
 	settingsManager: SettingsManager;
 	icalService: IcalService;
 	fileClient: FileClient;
+	taskIndex: TaskIndex;
+	taskFinder: TaskFinder;
 
 	async onload() {
 		console.log("Loading Obsidian iCal Plugin Pro");
 
 		await this.loadSettings();
 
-		this.settingsManager = await SettingsManager.createInstance(this);
+		this.taskIndex = new TaskIndex();
+		this.taskFinder = new TaskFinder(this.app.vault);
 		this.icalService = new IcalService();
 		this.fileClient = new FileClient(this.app.vault);
+
+		// Initialize Task Index
+		await this.buildIndex();
+
+		// Register Vault Events for Incremental Indexing
+		this.registerEvent(this.app.vault.on("modify", (file) => this.updateFileInIndex(file)));
+		this.registerEvent(this.app.vault.on("delete", (file) => this.removeFileFromIndex(file)));
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameFileInIndex(file, oldPath)));
 
 		// Add Ribbon Icon for quick sync
 		this.addRibbonIcon("calendar-with-checkmark", "iCal Pro: Sync Now", async () => {
@@ -28,23 +41,13 @@ export default class ObsidianIcalPlugin extends Plugin {
 				await this.saveCalendar();
 				new Notice("iCal Pro: Sync completed successfully!");
 			} catch (error) {
-				new Notice("iCal Pro: Sync failed. Check console for details.");
+				new Notice("iCal Pro: Sync failed.");
 				console.error(error);
 			}
 		});
 
 		// Add settings tab
 		this.addSettingTab(new SettingsTab(this.app, this));
-
-		// Register periodic save if enabled
-		if (this.settings.isPeriodicSaveEnabled) {
-			this.registerInterval(
-				window.setInterval(
-					() => this.saveCalendar(),
-					this.settings.periodicSaveInterval * 60 * 1000
-				)
-			);
-		}
 
 		// Add command to manually save calendar
 		this.addCommand({
@@ -54,10 +57,56 @@ export default class ObsidianIcalPlugin extends Plugin {
 				this.saveCalendar();
 			},
 		});
+
+		// Register periodic save
+		if (this.settings.isPeriodicSaveEnabled) {
+			this.registerInterval(
+				window.setInterval(
+					() => this.saveCalendar(),
+					this.settings.periodicSaveInterval * 60 * 1000
+				)
+			);
+		}
 	}
 
-	onunload() {
-		console.log("Unloading Obsidian iCal Plugin");
+	async buildIndex() {
+		logger(this.settings.isDebug).log("Building initial task index...");
+		const files = this.app.vault.getMarkdownFiles();
+		for (const file of files) {
+			await this.updateFileInIndex(file);
+		}
+	}
+
+	async updateFileInIndex(file: any) {
+		if (!(file instanceof TFile)) return;
+		// Only index files within the target directory
+		if (this.settings.rootPath !== "/" && !file.path.startsWith(this.settings.rootPath)) {
+			this.taskIndex.removeFile(file.path);
+			return;
+		}
+		const cache = this.app.metadataCache.getFileCache(file);
+		if (cache && cache.listItems) {
+			const tasks = await this.taskFinder.findTasks(file, cache.listItems, null, this.settings);
+			this.taskIndex.setTasks(file.path, tasks);
+		}
+	}
+
+	removeFileFromIndex(file: any) {
+		if (file instanceof TFile) {
+			this.taskIndex.removeFile(file.path);
+		}
+	}
+
+	async renameFileInIndex(file: any, oldPath: string) {
+		this.taskIndex.removeFile(oldPath);
+		await this.updateFileInIndex(file);
+	}
+
+	async saveCalendar() {
+		logger(this.settings.isDebug).log("Syncing to iCal...");
+		const allTasks = this.taskIndex.getAllTasks();
+		const calendar = this.icalService.getCalendar(allTasks, this.settings);
+		await this.fileClient.save(calendar);
 	}
 
 	async loadSettings() {
@@ -66,14 +115,5 @@ export default class ObsidianIcalPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-
-	async saveCalendar() {
-		// Implementation for saving calendar
-		// This usually involves finding tasks, building the iCal string, and saving it via fileClient
-		logger(this.settings.isDebug).log("Saving calendar...");
-		// const tasks = await taskFinder.findTasks();
-		// const calendar = this.icalService.getCalendar(tasks, this.settings);
-		// await this.fileClient.save(calendar);
 	}
 }
