@@ -71,7 +71,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 			id: "open-gist-url",
 			name: "Open Gist URL in browser",
 			callback: () => {
-				const { githubUsername, githubGistId, filename } = this.settings;
+				const { githubUsername, githubGistId } = this.settings;
 				if (githubUsername && githubGistId) {
 					const url = `https://gist.github.com/${githubUsername}/${githubGistId}`;
 					window.open(url, "_blank");
@@ -128,11 +128,17 @@ export default class ObsidianIcalPlugin extends Plugin {
 			const allTasks = this.taskIndex.getAllTasks();
 			const calendar = this.icalService.getCalendar(allTasks, this.settings);
 			
-			// Save locally
-			await this.fileClient.save(calendar);
+			// 1. Local Save
+			if (this.settings.isSaveToFileEnabled) {
+				await this.fileClient.save(calendar);
+			}
 			
-			// Save to Gist
-			await this.gistClient.save(calendar);
+			// 2. Gist Sync
+			if (this.settings.isSaveToGistEnabled) {
+				// We call save, and the GistClient uses the settings injected at constructor
+				// (which are updated because settings is an object reference)
+				await this.gistClient.save(calendar);
+			}
 
 			this.lastSyncStatus = "Success";
 			this.lastSyncTime = new Date().toLocaleTimeString();
@@ -141,6 +147,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 			this.lastSyncStatus = "Failed";
 			this.lastSyncTime = new Date().toLocaleTimeString();
 			this.lastSyncMessage = e.message || String(e);
+			console.error("iCal Pro: Sync Error Details:", e);
 			throw e;
 		}
 	}
