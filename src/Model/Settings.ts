@@ -27,6 +27,9 @@ export interface Settings {
 	rootPath: string;
 	isIncludeLinkInDescription: boolean;
 	secretKey: string;
+	// Alarm Settings
+	enableAlarms: boolean;
+	defaultAlarmOffset: number;
 }
 
 export const HOW_TO_PARSE_INTERNAL_LINKS = {
@@ -64,7 +67,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	howToParseInternalLinks: "DoNotModifyThem",
 	ignoreCompletedTasks: false,
 	isDebug: false,
-	includeEventsOrTodos: "EventsOnly",
+	includeEventsOrTodos: "EventsAndTodos",
 	isOnlyTasksWithoutDatesAreTodos: true,
 	ignoreOldTasks: false,
 	oldTaskInDays: 365,
@@ -77,4 +80,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	rootPath: "/",
 	isIncludeLinkInDescription: false,
 	secretKey: "",
+	enableAlarms: true,
+	defaultAlarmOffset: 20,
 };

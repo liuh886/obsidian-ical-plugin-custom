@@ -18,6 +18,16 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 
 	let summary = match[4].trim();
 
+	// Parse Alarm ⏰
+	let alarmOffset: number | null = null;
+	const alarmRegex = /⏰\s*(\d+)?/;
+	const alarmMatch = summary.match(alarmRegex);
+	if (alarmMatch) {
+		// If digit exists use it, otherwise use settings default
+		alarmOffset = alarmMatch[1] ? parseInt(alarmMatch[1]) : settings.defaultAlarmOffset;
+		summary = summary.replace(alarmMatch[0], "").trim();
+	}
+
 	// Remove bold and italic formatting from summary
 	summary = summary.replace(/\*\*|__/g, "").replace(/\*|_/g, "");
 
@@ -69,7 +79,7 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 		if (isOld) return null;
 	}
 
-	return new Task(status, dates, summary, fileUri, body);
+	return new Task(status, dates, summary, fileUri, body, alarmOffset);
 }
 
 function parseInternalLinks(summary: string, mode: string): string {
@@ -78,11 +88,8 @@ function parseInternalLinks(summary: string, mode: string): string {
 			return summary.replace(/\[\[.*?\]\]/g, "").replace(/\[.*?\]\(.*?\)/g, "").trim();
 		case "KeepTitle":
 		case "PreferTitle":
-			// Replace [[Link|Title]] with Title
 			summary = summary.replace(/\[\[.*?\|(.*?)\]\]/g, "$1");
-			// Replace [[Title]] with Title
 			summary = summary.replace(/\[\[(.*?)\]\]/g, "$1");
-			// Replace [Title](Link) with Title
 			summary = summary.replace(/\[(.*?)\]\(.*?\)/g, "$1");
 			return summary.trim();
 		case "DoNotModifyThem":

@@ -8,13 +8,15 @@ export class Task {
 	public summary: string;
 	public fileUri: string;
 	public body: string;
+	public alarmOffset: number | null; // minutes, null means no alarm
 
-	constructor(status: TaskStatus, dates: TaskDate[], summary: string, fileUri: string, body: string = "") {
+	constructor(status: TaskStatus, dates: TaskDate[], summary: string, fileUri: string, body: string = "", alarmOffset: number | null = null) {
 		this.status = status;
 		this.dates = dates;
 		this.summary = summary;
 		this.fileUri = fileUri;
 		this.body = body;
+		this.alarmOffset = alarmOffset;
 	}
 
 	public getId(): string {
@@ -51,6 +53,13 @@ export class Task {
 		}
 
 		return moment(matchingTaskDate.date).format(format);
+	}
+
+	public getRawDate(taskDateName: string | null): Date | null {
+		if (this.dates.length === 0) return null;
+		if (taskDateName === null) taskDateName = this.dates[0].name;
+		const matching = this.dates.find(d => d.name === taskDateName);
+		return matching ? matching.date : null;
 	}
 
 	public getSummary(): string {

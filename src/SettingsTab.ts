@@ -23,10 +23,8 @@ export class SettingsTab extends PluginSettingTab {
 
 		// --- Live Status Card ---
 		const statusCard = containerEl.createDiv({ cls: "ical-pro-status-card" });
-		
 		const statusGrid = statusCard.createDiv({ cls: "ical-pro-status-grid" });
 		
-		// Column 1: URL
 		const urlCol = statusGrid.createDiv({ cls: "ical-pro-status-col" });
 		const statusTitle = urlCol.createDiv({ cls: "ical-pro-card-title" });
 		setIcon(statusTitle, "link");
@@ -34,7 +32,6 @@ export class SettingsTab extends PluginSettingTab {
 		const urlContainer = urlCol.createDiv({ cls: "ical-url-container" });
 		this.renderUrl(urlContainer);
 
-		// Column 2: Last Sync
 		const syncCol = statusGrid.createDiv({ cls: "ical-pro-status-col" });
 		const syncTitle = syncCol.createDiv({ cls: "ical-pro-card-title" });
 		setIcon(syncTitle, "refresh-cw");
@@ -48,7 +45,7 @@ export class SettingsTab extends PluginSettingTab {
 		
 		new Setting(containerEl)
 			.setName("Target Directory")
-			.setDesc("The folder where tasks will be scanned. Choose '/' for the entire vault.")
+			.setDesc("The plugin will only scan files inside this folder. Type to search.")
 			.addText((text) => {
 				new FolderSuggest(this.app, text.inputEl);
 				text.setPlaceholder("Search folder...")
@@ -72,7 +69,7 @@ export class SettingsTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
 						await this.plugin.saveSettings();
-						this.display(); // Refresh to show correct tip
+						this.display();
 					})
 			);
 
@@ -121,25 +118,46 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Verify Connection")
-			.setDesc("Check if your Token and Gist ID are correctly configured.")
 			.addButton((btn) => 
 				btn.setButtonText("Test GitHub Sync")
 					.onClick(async () => {
 						btn.setDisabled(true);
-						btn.setButtonText("Testing...");
 						const result = await this.plugin.validateConnection();
-						if (result.success) {
-							new Notice("✅ " + result.message);
-						} else {
-							new Notice("❌ " + result.message);
-						}
+						new Notice(result.success ? "✅ " + result.message : "❌ " + result.message);
 						btn.setDisabled(false);
-						btn.setButtonText("Test GitHub Sync");
 					})
 			);
 
-		// --- SECTION 4: ADVANCED ---
-		this.addHeader(containerEl, "sliders", "4. Advanced Rules");
+		// --- SECTION 4: ALARMS & REMINDERS ---
+		this.addHeader(containerEl, "bell", "4. Alarms & Reminders");
+
+		new Setting(containerEl)
+			.setName("Enable Calendar Alarms")
+			.setDesc("Include VALARM components in the ICS file.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableAlarms)
+					.onChange(async (value) => {
+						this.plugin.settings.enableAlarms = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Default Alarm Offset")
+			.setDesc("Minutes before the event to trigger an alarm (if ⏰ exists without a number).")
+			.addText((text) =>
+				text
+					.setPlaceholder("20")
+					.setValue(String(this.plugin.settings.defaultAlarmOffset))
+					.onChange(async (value) => {
+						this.plugin.settings.defaultAlarmOffset = parseInt(value) || 20;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		// --- SECTION 5: ADVANCED ---
+		this.addHeader(containerEl, "sliders", "5. Advanced Rules");
 
 		new Setting(containerEl)
 			.setName("Ignore Completed Tasks")
