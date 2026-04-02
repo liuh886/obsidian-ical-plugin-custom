@@ -1,6 +1,5 @@
 import { App, PluginSettingTab, Setting, normalizePath } from "obsidian";
 import ObsidianIcalPlugin from "./ObsidianIcalPlugin";
-import { DEFAULT_SETTINGS } from "./Model/Settings";
 
 export class SettingsTab extends PluginSettingTab {
 	plugin: ObsidianIcalPlugin;
@@ -34,10 +33,10 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("File name")
-			.setDesc("The name of your generated .ics file.")
+			.setDesc("The name of your generated file (e.g. obsidian.ics).")
 			.addText((text) =>
 				text
-					.setPlaceholder("obsidian")
+					.setPlaceholder("obsidian.ics")
 					.setValue(this.plugin.settings.filename)
 					.onChange(async (value) => {
 						this.plugin.settings.filename = value;
@@ -61,6 +60,19 @@ export class SettingsTab extends PluginSettingTab {
 			href: "https://gist.github.com/" 
 		});
 		githubDesc.appendText(".");
+
+		new Setting(containerEl)
+			.setName("GitHub Username")
+			.addText((text) =>
+				text
+					.setPlaceholder("e.g., liuh886")
+					.setValue(this.plugin.settings.githubUsername)
+					.onChange(async (value) => {
+						this.plugin.settings.githubUsername = value;
+						await this.plugin.saveSettings();
+						this.updateUrlDisplay();
+					})
+			);
 
 		new Setting(containerEl)
 			.setName("Personal Access Token")
@@ -131,11 +143,13 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	private renderUrl(container: HTMLElement) {
+		const username = this.plugin.settings.githubUsername;
 		const gistId = this.plugin.settings.githubGistId;
-		const filename = this.plugin.settings.filename || "obsidian";
+		let filename = this.plugin.settings.filename || "obsidian.ics";
 		
-		if (gistId) {
-			const url = `https://gist.githubusercontent.com/raw/${gistId}/${filename}.ics`;
+		if (username && gistId) {
+			// Construct the standard Gist Raw URL
+			const url = `https://gist.githubusercontent.com/${username}/${gistId}/raw/${filename}`;
 			container.createEl("code", { text: url, cls: "ical-url-text" });
 			
 			const copyBtn = container.createEl("button", { text: "Copy URL", cls: "mod-cta" });
@@ -146,7 +160,7 @@ export class SettingsTab extends PluginSettingTab {
 			});
 		} else {
 			container.createEl("p", { 
-				text: "Configure your Gist ID above to generate a subscription URL.",
+				text: "Enter your GitHub Username and Gist ID above to generate a subscription URL.",
 				cls: "setting-item-description"
 			});
 		}
