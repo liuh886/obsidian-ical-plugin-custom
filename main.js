@@ -33,9 +33,20 @@ __export(main_exports, {
 });
 
 // src/ObsidianIcalPlugin.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/Model/Settings.ts
+var HOW_TO_PARSE_INTERNAL_LINKS = {
+  DoNotModifyThem: "Do not modify them (default)",
+  KeepTitle: "Keep the title",
+  PreferTitle: "Prefer the title",
+  RemoveThem: "Remove them"
+};
+var HOW_TO_PROCESS_MULTIPLE_DATES = {
+  PreferDueDate: "Prefer due date (default)",
+  PreferStartDate: "Prefer start date",
+  CreateMultipleEvents: "Create an event per start/scheduled/due date"
+};
 var DEFAULT_SETTINGS = {
   githubPersonalAccessToken: "",
   githubGistId: "",
@@ -640,8 +651,12 @@ function createTaskFromLine(line, fileUri, dateOverride, body, settings) {
     return null;
   const statusChar = match[2];
   const status = statusChar === "x" || statusChar === "X" ? "Done" /* Done */ : "Todo" /* Todo */;
+  if (status === "Done" /* Done */ && settings.ignoreCompletedTasks) {
+    return null;
+  }
   let summary = match[4].trim();
   summary = summary.replace(/\*\*|__/g, "").replace(/\*|_/g, "");
+  summary = parseInternalLinks(summary, settings.howToParseInternalLinks);
   const dates = [];
   const datePatterns = [
     { name: "Due", emoji: "\u{1F4C5}" },
@@ -671,7 +686,29 @@ function createTaskFromLine(line, fileUri, dateOverride, body, settings) {
   }
   if (dates.length === 0)
     return null;
+  if (settings.ignoreOldTasks) {
+    const now = new Date();
+    const thresholdDate = new Date(now.setDate(now.getDate() - settings.oldTaskInDays));
+    const isOld = dates.every((d) => d.date < thresholdDate);
+    if (isOld)
+      return null;
+  }
   return new Task(status, dates, summary, fileUri, body);
+}
+function parseInternalLinks(summary, mode) {
+  switch (mode) {
+    case "RemoveThem":
+      return summary.replace(/\[\[.*?\]\]/g, "").replace(/\[.*?\]\(.*?\)/g, "").trim();
+    case "KeepTitle":
+    case "PreferTitle":
+      summary = summary.replace(/\[\[.*?\|(.*?)\]\]/g, "$1");
+      summary = summary.replace(/\[\[(.*?)\]\]/g, "$1");
+      summary = summary.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+      return summary.trim();
+    case "DoNotModifyThem":
+    default:
+      return summary;
+  }
 }
 
 // src/Service/TaskFinder.ts
@@ -743,8 +780,37 @@ var TaskFinder = class {
 };
 
 // src/SettingsTab.ts
+var import_obsidian6 = require("obsidian");
+
+// src/FolderSuggest.ts
 var import_obsidian5 = require("obsidian");
-var SettingsTab = class extends import_obsidian5.PluginSettingTab {
+var FolderSuggest = class extends import_obsidian5.AbstractInputSuggest {
+  constructor(app, textInputEl) {
+    super(app, textInputEl);
+  }
+  getSuggestions(inputStr) {
+    const abstractFiles = this.app.vault.getAllLoadedFiles();
+    const folders = [];
+    const lowerCaseInputStr = inputStr.toLowerCase();
+    abstractFiles.forEach((folder) => {
+      if (folder instanceof import_obsidian5.TFolder && folder.path.toLowerCase().contains(lowerCaseInputStr)) {
+        folders.push(folder);
+      }
+    });
+    return folders;
+  }
+  renderSuggestion(folder, el) {
+    el.setText(folder.path);
+  }
+  selectSuggestion(folder) {
+    this.textInputEl.value = folder.path;
+    this.textInputEl.trigger("input");
+    this.close();
+  }
+};
+
+// src/SettingsTab.ts
+var SettingsTab = class extends import_obsidian6.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -758,54 +824,91 @@ var SettingsTab = class extends import_obsidian5.PluginSettingTab {
     headerText.createEl("span", { text: "v" + this.plugin.manifest.version, cls: "ical-pro-version" });
     const statusCard = containerEl.createDiv({ cls: "ical-pro-status-card" });
     const statusTitle = statusCard.createDiv({ cls: "ical-pro-card-title" });
-    (0, import_obsidian5.setIcon)(statusTitle, "link");
+    (0, import_obsidian6.setIcon)(statusTitle, "link");
     statusTitle.createSpan({ text: " Your Subscription URL" });
     const urlContainer = statusCard.createDiv({ cls: "ical-url-container" });
     this.renderUrl(urlContainer);
-    this.addHeader(containerEl, "settings", "General Settings");
-    new import_obsidian5.Setting(containerEl).setName("Target directory").setDesc("The folder where tasks will be scanned. Choose '/' for the entire vault.").addText((text) => text.setPlaceholder("e.g., 100_Logs/daily").setValue(this.plugin.settings.rootPath).onChange(async (value) => {
-      this.plugin.settings.rootPath = (0, import_obsidian5.normalizePath)(value);
+    this.addHeader(containerEl, "search", "1. Task Sources");
+    new import_obsidian6.Setting(containerEl).setName("Target Directory").setDesc("The plugin will only scan files inside this folder. Type to search.").addText((text) => {
+      new FolderSuggest(this.app, text.inputEl);
+      text.setPlaceholder("Search folder...").setValue(this.plugin.settings.rootPath).onChange(async (value) => {
+        this.plugin.settings.rootPath = (0, import_obsidian6.normalizePath)(value);
+        await this.plugin.saveSettings();
+        this.updateUrlDisplay();
+      });
+    });
+    this.addHeader(containerEl, "calendar-days", "2. Date & Time Logic");
+    const logicCard = containerEl.createDiv({ cls: "ical-pro-logic-info" });
+    logicCard.createEl("strong", { text: "Current Mode: " });
+    const modeText = logicCard.createSpan({
+      text: this.plugin.settings.isDayPlannerPluginFormatEnabled ? "Day Planner Integration" : "Standard (Emoji-based)"
+    });
+    new import_obsidian6.Setting(containerEl).setName("Day Planner Mode").setDesc("Enable this if you use Day Planner style (Heading = Date, Line = Time).").addToggle((toggle) => toggle.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled).onChange(async (value) => {
+      this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
+      modeText.setText(value ? "Day Planner Integration" : "Standard (Emoji-based)");
       await this.plugin.saveSettings();
-      this.updateUrlDisplay();
     }));
-    new import_obsidian5.Setting(containerEl).setName("File name").setDesc("The name of your generated .ics file.").addText((text) => text.setPlaceholder("obsidian.ics").setValue(this.plugin.settings.filename).onChange(async (value) => {
-      this.plugin.settings.filename = value;
+    new import_obsidian6.Setting(containerEl).setName("Multiple Dates Priority").setDesc("Which date to use if a task has Start, Scheduled, and Due dates.").addDropdown((dropdown) => {
+      Object.entries(HOW_TO_PROCESS_MULTIPLE_DATES).forEach(([key, value]) => {
+        dropdown.addOption(key, value);
+      });
+      dropdown.setValue(this.plugin.settings.howToProcessMultipleDates).onChange(async (value) => {
+        this.plugin.settings.howToProcessMultipleDates = value;
+        await this.plugin.saveSettings();
+      });
+    });
+    this.addHeader(containerEl, "filter", "3. Filtering Rules");
+    new import_obsidian6.Setting(containerEl).setName("Ignore Completed Tasks").setDesc("Completed tasks will not be included in the calendar.").addToggle((toggle) => toggle.setValue(this.plugin.settings.ignoreCompletedTasks).onChange(async (value) => {
+      this.plugin.settings.ignoreCompletedTasks = value;
       await this.plugin.saveSettings();
-      this.updateUrlDisplay();
     }));
-    this.addHeader(containerEl, "cloud", "GitHub Sync Configuration");
-    const githubInfo = containerEl.createDiv({ cls: "ical-pro-info-box" });
-    (0, import_obsidian5.setIcon)(githubInfo, "info");
-    const infoText = githubInfo.createDiv();
-    infoText.createSpan({ text: "Sync your calendar online using " });
-    infoText.createEl("a", { text: "GitHub Gist", href: "https://gist.github.com/" });
-    infoText.createSpan({ text: ". Requires a " });
-    infoText.createEl("a", { text: "Personal Access Token", href: "https://github.com/settings/tokens?type=beta" });
-    infoText.createSpan({ text: " with 'Gist' scope." });
-    new import_obsidian5.Setting(containerEl).setName("GitHub Username").addText((text) => text.setPlaceholder("liuh886").setValue(this.plugin.settings.githubUsername).onChange(async (value) => {
+    new import_obsidian6.Setting(containerEl).setName("Filter by Include Tag").setDesc("Only sync tasks containing these tags (space separated).").addToggle((toggle) => toggle.setValue(this.plugin.settings.isIncludeTasksWithTags).onChange(async (value) => {
+      this.plugin.settings.isIncludeTasksWithTags = value;
+      await this.plugin.saveSettings();
+    })).addText((text) => text.setPlaceholder("#calendar #sync").setValue(this.plugin.settings.includeTasksWithTags).onChange(async (value) => {
+      this.plugin.settings.includeTasksWithTags = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian6.Setting(containerEl).setName("Filter by Exclude Tag").setDesc("Ignore tasks containing these tags.").addToggle((toggle) => toggle.setValue(this.plugin.settings.isExcludeTasksWithTags).onChange(async (value) => {
+      this.plugin.settings.isExcludeTasksWithTags = value;
+      await this.plugin.saveSettings();
+    })).addText((text) => text.setPlaceholder("#ignore #private").setValue(this.plugin.settings.excludeTasksWithTags).onChange(async (value) => {
+      this.plugin.settings.excludeTasksWithTags = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian6.Setting(containerEl).setName("Ignore Old Tasks").setDesc("Do not sync tasks older than a certain number of days.").addToggle((toggle) => toggle.setValue(this.plugin.settings.ignoreOldTasks).onChange(async (value) => {
+      this.plugin.settings.ignoreOldTasks = value;
+      await this.plugin.saveSettings();
+    })).addText((text) => text.setPlaceholder("365").setValue(String(this.plugin.settings.oldTaskInDays)).onChange(async (value) => {
+      this.plugin.settings.oldTaskInDays = parseInt(value) || 365;
+      await this.plugin.saveSettings();
+    }));
+    this.addHeader(containerEl, "edit-3", "4. Content Formatting");
+    new import_obsidian6.Setting(containerEl).setName("Internal Links").setDesc("How to handle [[Wikilinks]] and [Markdown](links) in task summaries.").addDropdown((dropdown) => {
+      Object.entries(HOW_TO_PARSE_INTERNAL_LINKS).forEach(([key, value]) => {
+        dropdown.addOption(key, value);
+      });
+      dropdown.setValue(this.plugin.settings.howToParseInternalLinks).onChange(async (value) => {
+        this.plugin.settings.howToParseInternalLinks = value;
+        await this.plugin.saveSettings();
+      });
+    });
+    this.addHeader(containerEl, "cloud", "5. GitHub Sync");
+    new import_obsidian6.Setting(containerEl).setName("GitHub Username").addText((text) => text.setPlaceholder("liuh886").setValue(this.plugin.settings.githubUsername).onChange(async (value) => {
       this.plugin.settings.githubUsername = value;
       await this.plugin.saveSettings();
       this.updateUrlDisplay();
     }));
-    new import_obsidian5.Setting(containerEl).setName("Personal Access Token").setDesc("Used to upload your .ics to GitHub.").addText((text) => text.setPlaceholder("ghp_...").setValue(this.plugin.settings.githubPersonalAccessToken).onChange(async (value) => {
-      this.plugin.settings.githubPersonalAccessToken = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian5.Setting(containerEl).setName("Gist ID").setDesc("The ID of the Gist where your file will be saved.").addText((text) => text.setPlaceholder("f4faaf35...").setValue(this.plugin.settings.githubGistId).onChange(async (value) => {
+    new import_obsidian6.Setting(containerEl).setName("Gist ID").addText((text) => text.setPlaceholder("Paste Gist ID here").setValue(this.plugin.settings.githubGistId).onChange(async (value) => {
       this.plugin.settings.githubGistId = value;
       await this.plugin.saveSettings();
       this.updateUrlDisplay();
     }));
-    this.addHeader(containerEl, "list-checks", "Task & Date Rules");
-    new import_obsidian5.Setting(containerEl).setName("Ignore completed tasks").addToggle((toggle) => toggle.setValue(this.plugin.settings.ignoreCompletedTasks).onChange(async (value) => {
-      this.plugin.settings.ignoreCompletedTasks = value;
+    new import_obsidian6.Setting(containerEl).setName("Personal Access Token").addText((text) => text.setPlaceholder("ghp_...").setValue(this.plugin.settings.githubPersonalAccessToken).onChange(async (value) => {
+      this.plugin.settings.githubPersonalAccessToken = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian5.Setting(containerEl).setName("Processing multiple dates").setDesc("Priority when a task has multiple dates.").addDropdown((dropdown) => dropdown.addOption("PreferDueDate", "Prefer Due Date").addOption("PreferStartDate", "Prefer Start Date").addOption("CreateMultipleEvents", "Create Multiple Events").setValue(this.plugin.settings.howToProcessMultipleDates).onChange(async (value) => {
-      this.plugin.settings.howToProcessMultipleDates = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian5.Setting(containerEl).setName("Save Interval (Minutes)").setDesc("How often to sync in the background.").addSlider((slider) => slider.setLimits(5, 60, 5).setValue(this.plugin.settings.periodicSaveInterval).setDynamicTooltip().onChange(async (value) => {
+    new import_obsidian6.Setting(containerEl).setName("Sync Interval").setDesc("Minutes between automatic syncs.").addSlider((slider) => slider.setLimits(5, 120, 5).setValue(this.plugin.settings.periodicSaveInterval).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.periodicSaveInterval = value;
       await this.plugin.saveSettings();
     }));
@@ -813,7 +916,7 @@ var SettingsTab = class extends import_obsidian5.PluginSettingTab {
   addHeader(el, icon, text) {
     const header = el.createDiv({ cls: "ical-pro-section-header" });
     const iconEl = header.createDiv({ cls: "ical-pro-section-icon" });
-    (0, import_obsidian5.setIcon)(iconEl, icon);
+    (0, import_obsidian6.setIcon)(iconEl, icon);
     header.createEl("h3", { text });
   }
   updateUrlDisplay() {
@@ -838,7 +941,7 @@ var SettingsTab = class extends import_obsidian5.PluginSettingTab {
       });
     } else {
       container.createEl("p", {
-        text: "Complete GitHub Sync configuration to generate your URL.",
+        text: "Complete Step 5 (GitHub Sync) to generate your subscription URL.",
         cls: "ical-url-placeholder"
       });
     }
@@ -846,7 +949,7 @@ var SettingsTab = class extends import_obsidian5.PluginSettingTab {
 };
 
 // src/ObsidianIcalPlugin.ts
-var ObsidianIcalPlugin = class extends import_obsidian6.Plugin {
+var ObsidianIcalPlugin = class extends import_obsidian7.Plugin {
   async onload() {
     console.log("Loading Obsidian iCal Plugin Pro");
     await this.loadSettings();
@@ -859,12 +962,12 @@ var ObsidianIcalPlugin = class extends import_obsidian6.Plugin {
     this.registerEvent(this.app.vault.on("delete", (file) => this.removeFileFromIndex(file)));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameFileInIndex(file, oldPath)));
     this.addRibbonIcon("calendar-with-checkmark", "iCal Pro: Sync Now", async () => {
-      new import_obsidian6.Notice("iCal Pro: Starting synchronization...");
+      new import_obsidian7.Notice("iCal Pro: Starting synchronization...");
       try {
         await this.saveCalendar();
-        new import_obsidian6.Notice("iCal Pro: Sync completed successfully!");
+        new import_obsidian7.Notice("iCal Pro: Sync completed successfully!");
       } catch (error) {
-        new import_obsidian6.Notice("iCal Pro: Sync failed.");
+        new import_obsidian7.Notice("iCal Pro: Sync failed.");
         console.error(error);
       }
     });
@@ -888,7 +991,7 @@ var ObsidianIcalPlugin = class extends import_obsidian6.Plugin {
     }
   }
   async updateFileInIndex(file) {
-    if (!(file instanceof import_obsidian6.TFile))
+    if (!(file instanceof import_obsidian7.TFile))
       return;
     if (this.settings.rootPath !== "/" && !file.path.startsWith(this.settings.rootPath)) {
       this.taskIndex.removeFile(file.path);
@@ -901,7 +1004,7 @@ var ObsidianIcalPlugin = class extends import_obsidian6.Plugin {
     }
   }
   removeFileFromIndex(file) {
-    if (file instanceof import_obsidian6.TFile) {
+    if (file instanceof import_obsidian7.TFile) {
       this.taskIndex.removeFile(file.path);
     }
   }

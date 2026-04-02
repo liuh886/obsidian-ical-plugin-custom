@@ -3,7 +3,7 @@ import { Task } from "../Model/Task";
 export class TaskIndex {
 	private fileTasks: Map<string, Task[]> = new Map();
 
-	public updateTasksForFile(path: string, tasks: Task[]): void {
+	public setTasks(path: string, tasks: Task[]): void {
 		if (tasks.length === 0) {
 			this.fileTasks.delete(path);
 		} else {
