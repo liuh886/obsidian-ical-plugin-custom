@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, normalizePath, setIcon } from "obsidian";
+import { App, PluginSettingTab, Setting, normalizePath, setIcon, Notice } from "obsidian";
 import ObsidianIcalPlugin from "./ObsidianIcalPlugin";
 import { FolderSuggest } from "./FolderSuggest";
 import { HOW_TO_PARSE_INTERNAL_LINKS, HOW_TO_PROCESS_MULTIPLE_DATES } from "./Model/Settings";
@@ -21,21 +21,34 @@ export class SettingsTab extends PluginSettingTab {
 		headerText.createEl("h2", { text: "iCal Pro" });
 		headerText.createEl("span", { text: "v" + this.plugin.manifest.version, cls: "ical-pro-version" });
 
-		// --- Live URL Card ---
+		// --- Live Status Card ---
 		const statusCard = containerEl.createDiv({ cls: "ical-pro-status-card" });
-		const statusTitle = statusCard.createDiv({ cls: "ical-pro-card-title" });
-		setIcon(statusTitle, "link");
-		statusTitle.createSpan({ text: " Your Subscription URL" });
 		
-		const urlContainer = statusCard.createDiv({ cls: "ical-url-container" });
+		const statusGrid = statusCard.createDiv({ cls: "ical-pro-status-grid" });
+		
+		// Column 1: URL
+		const urlCol = statusGrid.createDiv({ cls: "ical-pro-status-col" });
+		const statusTitle = urlCol.createDiv({ cls: "ical-pro-card-title" });
+		setIcon(statusTitle, "link");
+		statusTitle.createSpan({ text: " Subscription URL" });
+		const urlContainer = urlCol.createDiv({ cls: "ical-url-container" });
 		this.renderUrl(urlContainer);
+
+		// Column 2: Last Sync
+		const syncCol = statusGrid.createDiv({ cls: "ical-pro-status-col" });
+		const syncTitle = syncCol.createDiv({ cls: "ical-pro-card-title" });
+		setIcon(syncTitle, "refresh-cw");
+		syncTitle.createSpan({ text: " Sync Status" });
+		const syncInfo = syncCol.createDiv({ cls: "ical-sync-info" });
+		syncInfo.createEl("div", { text: `Last Result: ${this.plugin.lastSyncStatus}`, cls: `ical-status-${this.plugin.lastSyncStatus.toLowerCase()}` });
+		syncInfo.createEl("div", { text: `At: ${this.plugin.lastSyncTime}`, cls: "ical-sync-time" });
 
 		// --- SECTION 1: TASK SOURCES ---
 		this.addHeader(containerEl, "search", "1. Task Sources");
 		
 		new Setting(containerEl)
 			.setName("Target Directory")
-			.setDesc("The plugin will only scan files inside this folder. Type to search.")
+			.setDesc("The folder where tasks will be scanned. Choose '/' for the entire vault.")
 			.addText((text) => {
 				new FolderSuggest(this.app, text.inputEl);
 				text.setPlaceholder("Search folder...")
@@ -50,12 +63,6 @@ export class SettingsTab extends PluginSettingTab {
 		// --- SECTION 2: DATE LOGIC ---
 		this.addHeader(containerEl, "calendar-days", "2. Date & Time Logic");
 
-		const logicCard = containerEl.createDiv({ cls: "ical-pro-logic-info" });
-		logicCard.createEl("strong", { text: "Current Mode: " });
-		const modeText = logicCard.createSpan({ 
-			text: this.plugin.settings.isDayPlannerPluginFormatEnabled ? "Day Planner Integration" : "Standard (Emoji-based)" 
-		});
-
 		new Setting(containerEl)
 			.setName("Day Planner Mode")
 			.setDesc("Enable this if you use Day Planner style (Heading = Date, Line = Time).")
@@ -64,116 +71,25 @@ export class SettingsTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled)
 					.onChange(async (value) => {
 						this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
-						modeText.setText(value ? "Day Planner Integration" : "Standard (Emoji-based)");
 						await this.plugin.saveSettings();
+						this.display(); // Refresh to show correct tip
 					})
 			);
 
-		new Setting(containerEl)
-			.setName("Multiple Dates Priority")
-			.setDesc("Which date to use if a task has Start, Scheduled, and Due dates.")
-			.addDropdown((dropdown) => {
-				Object.entries(HOW_TO_PROCESS_MULTIPLE_DATES).forEach(([key, value]) => {
-					dropdown.addOption(key, value);
-				});
-				dropdown.setValue(this.plugin.settings.howToProcessMultipleDates)
-					.onChange(async (value) => {
-						this.plugin.settings.howToProcessMultipleDates = value;
-						await this.plugin.saveSettings();
-					});
-			});
+		const tip = containerEl.createEl("p", { cls: "ical-pro-logic-tip" });
+		if (this.plugin.settings.isDayPlannerPluginFormatEnabled) {
+			tip.setText("💡 Mode: Date inherited from Heading (## 2026-04-02).");
+		} else {
+			tip.setText("💡 Mode: Standard Emoji-based (📅 2026-04-02).");
+		}
 
-		// --- SECTION 3: FILTERING RULES ---
-		this.addHeader(containerEl, "filter", "3. Filtering Rules");
-
-		new Setting(containerEl)
-			.setName("Ignore Completed Tasks")
-			.setDesc("Completed tasks will not be included in the calendar.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.ignoreCompletedTasks)
-					.onChange(async (value) => {
-						this.plugin.settings.ignoreCompletedTasks = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Filter by Include Tag")
-			.setDesc("Only sync tasks containing these tags (space separated).")
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.isIncludeTasksWithTags)
-				.onChange(async (value) => {
-					this.plugin.settings.isIncludeTasksWithTags = value;
-					await this.plugin.saveSettings();
-				}))
-			.addText((text) => text
-				.setPlaceholder("#calendar #sync")
-				.setValue(this.plugin.settings.includeTasksWithTags)
-				.onChange(async (value) => {
-					this.plugin.settings.includeTasksWithTags = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName("Filter by Exclude Tag")
-			.setDesc("Ignore tasks containing these tags.")
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.isExcludeTasksWithTags)
-				.onChange(async (value) => {
-					this.plugin.settings.isExcludeTasksWithTags = value;
-					await this.plugin.saveSettings();
-				}))
-			.addText((text) => text
-				.setPlaceholder("#ignore #private")
-				.setValue(this.plugin.settings.excludeTasksWithTags)
-				.onChange(async (value) => {
-					this.plugin.settings.excludeTasksWithTags = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName("Ignore Old Tasks")
-			.setDesc("Do not sync tasks older than a certain number of days.")
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.ignoreOldTasks)
-				.onChange(async (value) => {
-					this.plugin.settings.ignoreOldTasks = value;
-					await this.plugin.saveSettings();
-				}))
-			.addText((text) => text
-				.setPlaceholder("365")
-				.setValue(String(this.plugin.settings.oldTaskInDays))
-				.onChange(async (value) => {
-					this.plugin.settings.oldTaskInDays = parseInt(value) || 365;
-					await this.plugin.saveSettings();
-				}));
-
-		// --- SECTION 4: CONTENT FORMATTING ---
-		this.addHeader(containerEl, "edit-3", "4. Content Formatting");
-
-		new Setting(containerEl)
-			.setName("Internal Links")
-			.setDesc("How to handle [[Wikilinks]] and [Markdown](links) in task summaries.")
-			.addDropdown((dropdown) => {
-				Object.entries(HOW_TO_PARSE_INTERNAL_LINKS).forEach(([key, value]) => {
-					dropdown.addOption(key, value);
-				});
-				dropdown.setValue(this.plugin.settings.howToParseInternalLinks)
-					.onChange(async (value) => {
-						this.plugin.settings.howToParseInternalLinks = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		// --- SECTION 5: SYNC CONFIG ---
-		this.addHeader(containerEl, "cloud", "5. GitHub Sync");
+		// --- SECTION 3: GITHUB SYNC ---
+		this.addHeader(containerEl, "cloud", "3. GitHub Sync Configuration");
 
 		new Setting(containerEl)
 			.setName("GitHub Username")
 			.addText((text) =>
-				text.setPlaceholder("liuh886")
-					.setValue(this.plugin.settings.githubUsername)
+				text.setValue(this.plugin.settings.githubUsername)
 					.onChange(async (value) => {
 						this.plugin.settings.githubUsername = value;
 						await this.plugin.saveSettings();
@@ -184,8 +100,7 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Gist ID")
 			.addText((text) =>
-				text.setPlaceholder("Paste Gist ID here")
-					.setValue(this.plugin.settings.githubGistId)
+				text.setValue(this.plugin.settings.githubGistId)
 					.onChange(async (value) => {
 						this.plugin.settings.githubGistId = value;
 						await this.plugin.saveSettings();
@@ -205,8 +120,40 @@ export class SettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Sync Interval")
-			.setDesc("Minutes between automatic syncs.")
+			.setName("Verify Connection")
+			.setDesc("Check if your Token and Gist ID are correctly configured.")
+			.addButton((btn) => 
+				btn.setButtonText("Test GitHub Sync")
+					.onClick(async () => {
+						btn.setDisabled(true);
+						btn.setButtonText("Testing...");
+						const result = await this.plugin.validateConnection();
+						if (result.success) {
+							new Notice("✅ " + result.message);
+						} else {
+							new Notice("❌ " + result.message);
+						}
+						btn.setDisabled(false);
+						btn.setButtonText("Test GitHub Sync");
+					})
+			);
+
+		// --- SECTION 4: ADVANCED ---
+		this.addHeader(containerEl, "sliders", "4. Advanced Rules");
+
+		new Setting(containerEl)
+			.setName("Ignore Completed Tasks")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.ignoreCompletedTasks)
+					.onChange(async (value) => {
+						this.plugin.settings.ignoreCompletedTasks = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Sync Interval (Minutes)")
 			.addSlider((slider) =>
 				slider.setLimits(5, 120, 5)
 					.setValue(this.plugin.settings.periodicSaveInterval)
@@ -250,7 +197,7 @@ export class SettingsTab extends PluginSettingTab {
 			});
 		} else {
 			container.createEl("p", { 
-				text: "Complete Step 5 (GitHub Sync) to generate your subscription URL.",
+				text: "Awaiting GitHub Sync config...",
 				cls: "ical-url-placeholder"
 			});
 		}

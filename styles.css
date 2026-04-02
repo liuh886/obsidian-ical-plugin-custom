@@ -20,7 +20,7 @@
     margin-left: 10px;
 }
 
-/* --- Status Card --- */
+/* --- Status Card Grid --- */
 .ical-pro-status-card {
     background-color: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
@@ -31,30 +31,44 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
+.ical-pro-status-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 20px;
+}
+
+.ical-pro-status-col {
+    display: flex;
+    flex-direction: column;
+}
+
 .ical-pro-card-title {
     display: flex;
     align-items: center;
     font-weight: bold;
-    font-size: 1.1em;
-    margin-bottom: 12px;
-    color: var(--text-normal);
+    font-size: 0.9em;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 .ical-pro-card-title svg {
-    margin-right: 8px;
-    color: var(--text-accent);
+    margin-right: 6px;
+    width: 14px;
+    height: 14px;
 }
 
-/* --- URL Container --- */
+/* --- URL & Sync Info --- */
 .ical-url-container {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
 .ical-url-text {
     display: block;
-    padding: 10px;
+    padding: 8px;
     background-color: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
@@ -62,101 +76,59 @@
     font-size: 0.85em;
     color: var(--text-accent);
     word-break: break-all;
-    line-height: 1.4;
-    user-select: all;
 }
 
-.ical-url-placeholder {
-    font-style: italic;
-    opacity: 0.6;
-    margin: 0;
+.ical-sync-info {
+    padding: 8px;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    height: 100%;
 }
+
+.ical-status-success { color: var(--text-success); font-weight: bold; }
+.ical-status-failed { color: var(--text-error); font-weight: bold; }
+.ical-sync-time { font-size: 0.85em; opacity: 0.7; margin-top: 4px; }
 
 /* --- Section Headers --- */
 .ical-pro-section-header {
     display: flex;
     align-items: center;
-    margin-top: 35px;
-    margin-bottom: 15px;
-    padding-bottom: 5px;
+    margin-top: 30px;
+    margin-bottom: 12px;
+    padding-bottom: 4px;
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .ical-pro-section-icon {
-    margin-right: 10px;
+    margin-right: 8px;
     display: flex;
     align-items: center;
 }
 
 .ical-pro-section-icon svg {
-    width: 20px;
-    height: 20px;
-    opacity: 0.8;
+    width: 18px;
+    height: 18px;
+    color: var(--text-accent);
 }
 
 .ical-pro-section-header h3 {
     margin: 0;
     font-size: 1.1em;
-    color: var(--text-normal);
 }
 
-/* --- Logic Info & Tips --- */
-.ical-pro-logic-info {
+.ical-pro-logic-tip {
+    font-size: 0.85em;
+    color: var(--text-accent);
     background-color: var(--background-secondary-alt);
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: 4px;
-    font-size: 0.9em;
-    margin-bottom: 10px;
-    border: 1px solid var(--background-modifier-border);
-}
-
-.ical-pro-logic-info strong {
-    color: var(--text-accent);
-}
-
-.ical-pro-tip {
-    color: var(--text-success) !important;
-    font-weight: 500;
-    margin-top: 5px;
-}
-
-/* --- Info Box --- */
-.ical-pro-info-box {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px;
-    background-color: var(--background-secondary-alt);
-    border-radius: 6px;
-    font-size: 0.9em;
-    margin-bottom: 20px;
-    line-height: 1.5;
-}
-
-.ical-pro-info-box svg {
-    flex-shrink: 0;
-    width: 18px;
-    height: 18px;
-    margin-top: 2px;
-    color: var(--text-accent);
+    margin: -5px 0 15px 0;
+    display: inline-block;
 }
 
 /* --- Utility --- */
 .setting-item {
+    padding: 12px 0;
     border-top: none;
-    padding: 15px 0;
-}
-
-.setting-item-control {
-    gap: 10px;
-}
-
-.ical-pro-tip {
-    color: var(--text-success) !important;
-    font-weight: 500;
-    margin-top: 5px;
-    background-color: var(--background-secondary-alt);
-    padding: 4px 8px;
-    border-radius: 4px;
-    display: inline-block;
 }

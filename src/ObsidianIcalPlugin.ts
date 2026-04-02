@@ -1,4 +1,4 @@
-import { Plugin, Notice, TFile } from "obsidian";
+import { Plugin, Notice, TFile, requestUrl } from "obsidian";
 import { Settings, DEFAULT_SETTINGS } from "./Model/Settings";
 import { SettingsManager } from "./SettingsManager";
 import { IcalService } from "./Service/IcalService";
@@ -15,6 +15,8 @@ export default class ObsidianIcalPlugin extends Plugin {
 	fileClient: FileClient;
 	taskIndex: TaskIndex;
 	taskFinder: TaskFinder;
+	lastSyncStatus: string = "Never synced";
+	lastSyncTime: string = "-";
 
 	async onload() {
 		console.log("Loading Obsidian iCal Plugin Pro");
@@ -70,7 +72,6 @@ export default class ObsidianIcalPlugin extends Plugin {
 	}
 
 	async buildIndex() {
-		logger(this.settings.isDebug).log("Building initial task index...");
 		const files = this.app.vault.getMarkdownFiles();
 		for (const file of files) {
 			await this.updateFileInIndex(file);
@@ -79,7 +80,6 @@ export default class ObsidianIcalPlugin extends Plugin {
 
 	async updateFileInIndex(file: any) {
 		if (!(file instanceof TFile)) return;
-		// Only index files within the target directory
 		if (this.settings.rootPath !== "/" && !file.path.startsWith(this.settings.rootPath)) {
 			this.taskIndex.removeFile(file.path);
 			return;
@@ -103,10 +103,43 @@ export default class ObsidianIcalPlugin extends Plugin {
 	}
 
 	async saveCalendar() {
-		logger(this.settings.isDebug).log("Syncing to iCal...");
-		const allTasks = this.taskIndex.getAllTasks();
-		const calendar = this.icalService.getCalendar(allTasks, this.settings);
-		await this.fileClient.save(calendar);
+		try {
+			const allTasks = this.taskIndex.getAllTasks();
+			const calendar = this.icalService.getCalendar(allTasks, this.settings);
+			await this.fileClient.save(calendar);
+			this.lastSyncStatus = "Success";
+			this.lastSyncTime = new Date().toLocaleTimeString();
+		} catch (e) {
+			this.lastSyncStatus = "Failed";
+			this.lastSyncTime = new Date().toLocaleTimeString();
+			throw e;
+		}
+	}
+
+	async validateConnection(): Promise<{success: boolean, message: string}> {
+		const { githubPersonalAccessToken, githubGistId } = this.settings;
+		if (!githubPersonalAccessToken || !githubGistId) {
+			return { success: false, message: "Token or Gist ID missing." };
+		}
+
+		try {
+			const response = await requestUrl({
+				url: `https://api.github.com/gists/${githubGistId}`,
+				method: "GET",
+				headers: {
+					"Authorization": `token ${githubPersonalAccessToken}`,
+					"Accept": "application/vnd.github.v3+json"
+				}
+			});
+			
+			if (response.status === 200) {
+				return { success: true, message: "Connection successful! Gist found." };
+			} else {
+				return { success: false, message: `GitHub returned status ${response.status}` };
+			}
+		} catch (e) {
+			return { success: false, message: "Network error or invalid Token/Gist ID." };
+		}
 	}
 
 	async loadSettings() {
