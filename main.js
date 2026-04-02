@@ -853,6 +853,9 @@ var SettingsTab = class extends import_obsidian7.PluginSettingTab {
     const syncInfo = syncCol.createDiv({ cls: "ical-sync-info" });
     syncInfo.createEl("div", { text: `Last Result: ${this.plugin.lastSyncStatus}`, cls: `ical-status-${this.plugin.lastSyncStatus.toLowerCase()}` });
     syncInfo.createEl("div", { text: `At: ${this.plugin.lastSyncTime}`, cls: "ical-sync-time" });
+    if (this.plugin.lastSyncStatus === "Failed" && this.plugin.lastSyncMessage) {
+      syncInfo.createEl("div", { text: this.plugin.lastSyncMessage, cls: "ical-sync-error" });
+    }
     const syncBtn = syncCol.createEl("button", { text: "Sync Now", cls: "mod-cta ical-sync-button" });
     syncBtn.onClickEvent(async () => {
       syncBtn.setDisabled(true);
@@ -988,6 +991,7 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
     super(...arguments);
     this.lastSyncStatus = "Never synced";
     this.lastSyncTime = "-";
+    this.lastSyncMessage = "";
   }
   async onload() {
     console.log("Loading Obsidian iCal Plugin Pro");
@@ -1074,9 +1078,11 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
       await this.gistClient.save(calendar);
       this.lastSyncStatus = "Success";
       this.lastSyncTime = new Date().toLocaleTimeString();
+      this.lastSyncMessage = "";
     } catch (e) {
       this.lastSyncStatus = "Failed";
       this.lastSyncTime = new Date().toLocaleTimeString();
+      this.lastSyncMessage = e.message || String(e);
       throw e;
     }
   }

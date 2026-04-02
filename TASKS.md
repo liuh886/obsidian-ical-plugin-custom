@@ -38,3 +38,10 @@
 - [ ] 7.3 **Open Gist URL Command**: Implement a new Command Palette entry to quickly open the configured Gist URL in the browser.
 - [ ] 7.4 **CLI Sync Status Feedback**: Implement a `sync-result.json` file or enhanced logging in the plugin folder to allow CLI scripts to verify the success of a background sync.
 - [ ] 7.5 **Gist Export Logic (Critical Fix)**: Actually implement the Gist upload logic in a new `GistClient.ts` (currently settings exist but the functional code is missing).
+
+## Phase 8: Feature Parity & User Control
+- [ ] 8.1 **Local Save UI**: Implement toggle and path/filename/extension inputs in `SettingsTab.ts` to allow users to save `.ics` files directly to their vault (iCloud/Dropbox friendly).
+- [ ] 8.2 **Tag Filtering UI**: Add "Include Tags" and "Exclude Tags" text fields to `SettingsTab.ts`. Refactor `TaskFinder.ts` to support multiple tags (comma-separated).
+- [ ] 8.3 **Obsidian Link Location**: Replace the simple `isIncludeLinkInDescription` toggle with a dropdown or multiple toggles to place `obsidian://` links in `DESCRIPTION`, `LOCATION`, or both.
+- [ ] 8.4 **Debug Mode Toggle**: Add a visible "Debug Mode" toggle in settings to enable/disable verbose logging to the Obsidian console.
+- [ ] 8.5 **Compatibility Documentation**: Update the settings UI with a help section listing compatible platforms (Google, Apple, Outlook, Proton) and their sync behaviors (e.g., Google's 24h cache).

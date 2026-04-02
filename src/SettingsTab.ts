@@ -37,11 +37,8 @@ export class SettingsTab extends PluginSettingTab {
 		setIcon(syncTitle, "refresh-cw");
 		syncTitle.createSpan({ text: " Sync Status" });
 		const syncInfo = syncCol.createDiv({ cls: "ical-sync-info" });
-		syncInfo.createEl("div", { text: `Last Result: ${this.plugin.lastSyncStatus}`, cls: `ical-status-${this.plugin.lastSyncStatus.toLowerCase()}` });
+		syncInfo.createEl("div", { text: `Result: ${this.plugin.lastSyncStatus}`, cls: `ical-status-${this.plugin.lastSyncStatus.toLowerCase()}` });
 		syncInfo.createEl("div", { text: `At: ${this.plugin.lastSyncTime}`, cls: "ical-sync-time" });
-		if (this.plugin.lastSyncStatus === "Failed" && this.plugin.lastSyncMessage) {
-			syncInfo.createEl("div", { text: this.plugin.lastSyncMessage, cls: "ical-sync-error" });
-		}
 		
 		const syncBtn = syncCol.createEl("button", { text: "Sync Now", cls: "mod-cta ical-sync-button" });
 		syncBtn.onClickEvent(async () => {
@@ -50,7 +47,7 @@ export class SettingsTab extends PluginSettingTab {
 			try {
 				await this.plugin.saveCalendar();
 				new Notice("iCal Pro: Sync successful!");
-				this.display(); // Refresh to show new time
+				this.display();
 			} catch (e) {
 				new Notice("iCal Pro: Sync failed.");
 				this.display();
@@ -62,7 +59,7 @@ export class SettingsTab extends PluginSettingTab {
 		
 		new Setting(containerEl)
 			.setName("Target Directory")
-			.setDesc("The plugin will only scan files inside this folder. Type to search.")
+			.setDesc("Scan tasks within this folder. Type to search.")
 			.addText((text) => {
 				new FolderSuggest(this.app, text.inputEl);
 				text.setPlaceholder("Search folder...")
@@ -74,15 +71,14 @@ export class SettingsTab extends PluginSettingTab {
 					});
 			});
 
-		// --- SECTION 2: DATE LOGIC ---
-		this.addHeader(containerEl, "calendar-days", "2. Date & Time Logic");
+		// --- SECTION 2: DATE & ALARM LOGIC ---
+		this.addHeader(containerEl, "calendar-days", "2. Date & Alarm Logic");
 
 		new Setting(containerEl)
 			.setName("Day Planner Mode")
-			.setDesc("Enable this if you use Day Planner style (Heading = Date, Line = Time).")
+			.setDesc("Heading = Date, Line = Time.")
 			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled)
+				toggle.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled)
 					.onChange(async (value) => {
 						this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
 						await this.plugin.saveSettings();
@@ -90,155 +86,95 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			);
 
-		const tip = containerEl.createEl("p", { cls: "ical-pro-logic-tip" });
-		if (this.plugin.settings.isDayPlannerPluginFormatEnabled) {
-			tip.setText("💡 Mode: Date inherited from Heading (## 2026-04-02).");
-		} else {
-			tip.setText("💡 Mode: Standard Emoji-based (📅 2026-04-02).");
-		}
-
-		// --- SECTION 3: GITHUB SYNC ---
-		this.addHeader(containerEl, "cloud", "3. GitHub Sync Configuration");
-
 		new Setting(containerEl)
-			.setName("GitHub Username")
-			.setDesc("Your GitHub account name (required for URL).")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.githubUsername)
-					.onChange(async (value) => {
-						this.plugin.settings.githubUsername = value;
-						await this.plugin.saveSettings();
-						this.updateUrlDisplay();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Gist ID")
-			.setDesc("Create a Gist at gist.github.com and paste its ID here.")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.githubGistId)
-					.onChange(async (value) => {
-						this.plugin.settings.githubGistId = value;
-						await this.plugin.saveSettings();
-						this.updateUrlDisplay();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Personal Access Token")
-			.setDesc("Create a Token (Gist scope) at GitHub Settings -> Developer Settings.")
-			.addText((text) =>
-				text.setPlaceholder("ghp_...")
-					.setValue(this.plugin.settings.githubPersonalAccessToken)
-					.onChange(async (value) => {
-						this.plugin.settings.githubPersonalAccessToken = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Gist Filename")
-			.setDesc("The name of the file inside the Gist (default: obsidian.ics).")
-			.addText((text) =>
-				text.setPlaceholder("obsidian.ics")
-					.setValue(this.plugin.settings.filename)
-					.onChange(async (value) => {
-						this.plugin.settings.filename = value;
-						await this.plugin.saveSettings();
-						this.updateUrlDisplay();
-					})
-			);
-
-		const setupLinks = containerEl.createDiv({ cls: "ical-pro-info-box" });
-		setIcon(setupLinks, "help-circle");
-		const linksText = setupLinks.createDiv();
-		linksText.createSpan({ text: "Setup Guides: " });
-		linksText.createEl("a", { text: "Create Token", href: "https://github.com/settings/tokens?type=beta" });
-		linksText.createSpan({ text: " | " });
-		linksText.createEl("a", { text: "Manage Gists", href: "https://gist.github.com/" });
-
-		new Setting(containerEl)
-			.setName("Verify Connection")
-			.addButton((btn) => 
-				btn.setButtonText("Test GitHub Sync")
-					.onClick(async () => {
-						btn.setDisabled(true);
-						const result = await this.plugin.validateConnection();
-						new Notice(result.success ? "✅ " + result.message : "❌ " + result.message);
-						btn.setDisabled(false);
-					})
-			);
-
-		// --- SECTION 4: ALARMS & REMINDERS ---
-		this.addHeader(containerEl, "bell", "4. Alarms & Reminders");
-
-		new Setting(containerEl)
-			.setName("Enable Calendar Alarms")
+			.setName("Enable Alarms")
+			.setDesc("Include VALARM alerts in the calendar.")
 			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enableAlarms)
+				toggle.setValue(this.plugin.settings.enableAlarms)
 					.onChange(async (value) => {
 						this.plugin.settings.enableAlarms = value;
 						await this.plugin.saveSettings();
 					})
 			);
 
+		// --- SECTION 3: FILTERING RULES ---
+		this.addHeader(containerEl, "filter", "3. Filtering Rules");
+
 		new Setting(containerEl)
-			.setName("Default Alarm Offset")
-			.setDesc("Minutes before the event.")
-			.addText((text) =>
-				text
-					.setPlaceholder("20")
-					.setValue(String(this.plugin.settings.defaultAlarmOffset))
-					.onChange(async (value) => {
-						this.plugin.settings.defaultAlarmOffset = parseInt(value) || 20;
+			.setName("Include Tags")
+			.setDesc("Only sync tasks containing these tags (space separated).")
+			.addToggle((toggle) => toggle.setValue(this.plugin.settings.isIncludeTasksWithTags).onChange(async v => { this.plugin.settings.isIncludeTasksWithTags = v; await this.plugin.saveSettings(); }))
+			.addText((text) => text.setPlaceholder("#work #sync").setValue(this.plugin.settings.includeTasksWithTags).onChange(async v => { this.plugin.settings.includeTasksWithTags = v; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl)
+			.setName("Exclude Tags")
+			.setDesc("Ignore tasks with these tags.")
+			.addToggle((toggle) => toggle.setValue(this.plugin.settings.isExcludeTasksWithTags).onChange(async v => { this.plugin.settings.isExcludeTasksWithTags = v; await this.plugin.saveSettings(); }))
+			.addText((text) => text.setPlaceholder("#private").setValue(this.plugin.settings.excludeTasksWithTags).onChange(async v => { this.plugin.settings.excludeTasksWithTags = v; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl)
+			.setName("Ignore Completed")
+			.addToggle((toggle) => toggle.setValue(this.plugin.settings.ignoreCompletedTasks).onChange(async v => { this.plugin.settings.ignoreCompletedTasks = v; await this.plugin.saveSettings(); }));
+
+		// --- SECTION 4: SAVE DESTINATIONS ---
+		this.addHeader(containerEl, "cloud", "4. Save Destinations");
+
+		// Local Save
+		new Setting(containerEl)
+			.setName("Save to Local File")
+			.setDesc("Save the .ics file to your vault storage (best for iCloud/Dropbox).")
+			.addToggle((toggle) => toggle.setValue(this.plugin.settings.isSaveToFileEnabled).onChange(async v => { this.plugin.settings.isSaveToFileEnabled = v; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl)
+			.setName("Local Save Path")
+			.setDesc("Specify a folder for the local .ics file.")
+			.addText((text) => {
+				new FolderSuggest(this.app, text.inputEl);
+				text.setValue(this.plugin.settings.savePath).onChange(async v => { this.plugin.settings.savePath = normalizePath(v); await this.plugin.saveSettings(); });
+			});
+
+		// Gist Save
+		new Setting(containerEl)
+			.setName("Sync to GitHub Gist")
+			.addToggle((toggle) => toggle.setValue(this.plugin.settings.isSaveToGistEnabled).onChange(async v => { this.plugin.settings.isSaveToGistEnabled = v; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl)
+			.setName("GitHub Username")
+			.addText((text) => text.setValue(this.plugin.settings.githubUsername).onChange(async v => { this.plugin.settings.githubUsername = v; await this.plugin.saveSettings(); this.updateUrlDisplay(); }));
+
+		new Setting(containerEl)
+			.setName("Gist ID")
+			.addText((text) => text.setValue(this.plugin.settings.githubGistId).onChange(async v => { this.plugin.settings.githubGistId = v; await this.plugin.saveSettings(); this.updateUrlDisplay(); }));
+
+		new Setting(containerEl)
+			.setName("Personal Access Token")
+			.addText((text) => text.setPlaceholder("ghp_...").setValue(this.plugin.settings.githubPersonalAccessToken).onChange(async v => { this.plugin.settings.githubPersonalAccessToken = v; await this.plugin.saveSettings(); }));
+
+		// --- SECTION 5: ADVANCED & DEBUG ---
+		this.addHeader(containerEl, "sliders", "5. Advanced & Diagnostics");
+
+		new Setting(containerEl)
+			.setName("Obsidian Link Location")
+			.setDesc("Where to place the obsidian:// link.")
+			.addDropdown((dropdown) =>
+				dropdown.addOption("Both", "Both (Description & Location)")
+					.addOption("Description", "Description only")
+					.addOption("Location", "Location only")
+					.setValue(this.plugin.settings.isIncludeLinkInDescription ? "Both" : "Location") // Simplified logic for UI
+					.onChange(async (v) => {
+						this.plugin.settings.isIncludeLinkInDescription = (v === "Both" || v === "Description");
 						await this.plugin.saveSettings();
 					})
 			);
 
-		// --- SECTION 5: ADVANCED ---
-		this.addHeader(containerEl, "sliders", "5. Advanced Rules");
+		new Setting(containerEl)
+			.setName("Debug Mode")
+			.setDesc("Enable verbose logging in the console (Ctrl+Shift+I).")
+			.addToggle((toggle) => toggle.setValue(this.plugin.settings.isDebug).onChange(async v => { this.plugin.settings.isDebug = v; await this.plugin.saveSettings(); }));
 
 		new Setting(containerEl)
-			.setName("Ignore Completed Tasks")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.ignoreCompletedTasks)
-					.onChange(async (value) => {
-						this.plugin.settings.ignoreCompletedTasks = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Filter by Age (Ignore Old Tasks)")
-			.setDesc("Ignore tasks older than X days. Disable to include all past tasks.")
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.ignoreOldTasks)
-				.onChange(async (value) => {
-					this.plugin.settings.ignoreOldTasks = value;
-					await this.plugin.saveSettings();
-					this.display();
-				}))
-			.addText((text) => text
-				.setPlaceholder("365")
-				.setValue(String(this.plugin.settings.oldTaskInDays))
-				.onChange(async (value) => {
-					this.plugin.settings.oldTaskInDays = parseInt(value) || 365;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName("Sync Interval (Minutes)")
-			.addSlider((slider) =>
-				slider.setLimits(5, 120, 5)
-					.setValue(this.plugin.settings.periodicSaveInterval)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.periodicSaveInterval = value;
-						await this.plugin.saveSettings();
-					})
-			);
+			.setName("Sync Interval")
+			.addSlider((slider) => slider.setLimits(5, 120, 5).setValue(this.plugin.settings.periodicSaveInterval).setDynamicTooltip().onChange(async v => { this.plugin.settings.periodicSaveInterval = v; await this.plugin.saveSettings(); }));
 	}
 
 	private addHeader(el: HTMLElement, icon: string, text: string) {
@@ -260,11 +196,9 @@ export class SettingsTab extends PluginSettingTab {
 		const username = this.plugin.settings.githubUsername;
 		const gistId = this.plugin.settings.githubGistId;
 		let filename = this.plugin.settings.filename || "obsidian.ics";
-		
 		if (username && gistId) {
 			const url = `https://gist.githubusercontent.com/${username}/${gistId}/raw/${filename}`;
 			container.createEl("code", { text: url, cls: "ical-url-text" });
-			
 			const copyBtn = container.createEl("button", { text: "Copy URL", cls: "mod-cta" });
 			copyBtn.onClickEvent(() => {
 				navigator.clipboard.writeText(url);
@@ -272,10 +206,7 @@ export class SettingsTab extends PluginSettingTab {
 				setTimeout(() => copyBtn.setText("Copy URL"), 2000);
 			});
 		} else {
-			container.createEl("p", { 
-				text: "Awaiting GitHub Sync config...",
-				cls: "ical-url-placeholder"
-			});
+			container.createEl("p", { text: "GitHub sync not configured.", cls: "ical-url-placeholder" });
 		}
 	}
 }
