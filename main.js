@@ -4470,7 +4470,7 @@ var IcalService = class {
     } else {
       event += "DTSTART:" + date + "\r\n";
     }
-    event += "SUMMARY:" + prependSummary + task.getSummary() + "\r\n" + "DESCRIPTION:" + task.getBody() + "\\n\\n" + encodeURI(task.getLocation()) + "\r\n" + "LOCATION:" + encodeURI(task.getLocation()) + "\r\nEND:VEVENT\r\n";
+    event += "SUMMARY:" + prependSummary + task.getSummary() + "\r\n" + (task.getBody() ? "DESCRIPTION:" + task.getBody() + "\r\n" : "") + "LOCATION:" + encodeURI(task.getLocation()) + "\r\nEND:VEVENT\r\n";
     return event;
   }
   getToDos(tasks) {
@@ -4483,7 +4483,7 @@ var IcalService = class {
   }
   getToDo(task) {
     let toDo = "BEGIN:VTODO\r\nUID:" + task.getId() + "\r\nSUMMARY:" + task.getSummary() + "\r\n" + // If a task does not have a date, do not include the DTSTAMP property
-    (task.hasAnyDate() ? "DTSTAMP:" + task.getDate(null, "YYYYMMDDTHHmmss") + "\r\n" : "") + "DESCRIPTION:" + task.getBody() + "\\n\\n" + encodeURI(task.getLocation()) + "\r\n" + "LOCATION:" + encodeURI(task.getLocation()) + "\r\n";
+    (task.hasAnyDate() ? "DTSTAMP:" + task.getDate(null, "YYYYMMDDTHHmmss") + "\r\n" : "") + (task.getBody() ? "DESCRIPTION:" + task.getBody() + "\r\n" : "") + "LOCATION:" + encodeURI(task.getLocation()) + "\r\n";
     if (task.hasA("Due" /* Due */)) {
       toDo += "DUE;VALUE=DATE:" + task.getDate("Due" /* Due */, "YYYYMMDD") + "\r\n";
     }
@@ -4525,6 +4525,7 @@ var import_obsidian5 = require("obsidian");
 // src/Model/TaskSummary.ts
 function getSummaryFromMarkdown(markdown, howToParseInternalLinks) {
   markdown = removeRecurringDates(markdown);
+  markdown = markdown.replace(/\*\*|__/g, "");
   switch (howToParseInternalLinks) {
     case "KeepTitle":
       markdown = extractWikilinkTitles(markdown);
@@ -4699,7 +4700,8 @@ var TaskFinder = class {
     const fileCachedContent = await this.vault.cachedRead(file);
     const lines = fileCachedContent.split("\n");
     const fileUri = "obsidian://open?vault=" + file.vault.getName() + "&file=" + file.path;
-    const taskPositions = listItemsCache.map((item) => item.position.start.line);
+    const isTask = (line) => /(\*|-)\s*\[.?]\s*/.test(line);
+    const taskPositions = listItemsCache.map((item) => item.position.start.line).filter((lineNo) => isTask(lines[lineNo]));
     const results = [];
     for (let i = 0; i < taskPositions.length; i++) {
       const startLine = taskPositions[i];
@@ -4708,15 +4710,18 @@ var TaskFinder = class {
       let nextTaskLine = i + 1 < taskPositions.length ? taskPositions[i + 1] : lines.length;
       for (let j = startLine + 1; j < nextTaskLine; j++) {
         const currentLine = lines[j];
-        if (currentLine.trim() === "")
+        const trimmed = currentLine.trim();
+        if (trimmed === "" && j > startLine + 1)
           break;
-        if (currentLine.trim().startsWith(">") || currentLine.trim().startsWith("-") || currentLine.trim().startsWith("*") || /^\s+/.test(currentLine)) {
-          bodyLines.push(currentLine.trim());
+        if (trimmed === "")
+          continue;
+        if (trimmed.startsWith(">") || trimmed.startsWith("-") || trimmed.startsWith("*") || /^\s+/.test(currentLine)) {
+          bodyLines.push(trimmed);
         } else {
           break;
         }
       }
-      const body = bodyLines.join("\n");
+      const body = bodyLines.join("\\n");
       let dateOverride = null;
       var _a;
       if (settings.isDayPlannerPluginFormatEnabled && (headings == null ? void 0 : headings.hasHeadings())) {

@@ -1,0 +1,29 @@
+{
+  "name": "obsidian-ical-plugin-custom",
+  "version": "2.0.1-dev",
+  "description": "Customized iCal plugin with timezone support and multi-line task description.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "version": "node version-bump.mjs && git add manifest.json versions.json"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "ical",
+    "calendar"
+  ],
+  "author": "liuh886 (Customized from Andrew Brereton)",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^16.11.21",
+    "@typescript-eslint/eslint-plugin": "^5.10.1",
+    "@typescript-eslint/parser": "^5.10.1",
+    "builtin-modules": "^3.2.0",
+    "esbuild": "0.14.14",
+    "obsidian": "latest",
+    "tslib": "2.3.1",
+    "typescript": "4.5.5"
+  }
+}
