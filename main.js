@@ -33,7 +33,7 @@ __export(main_exports, {
 });
 
 // src/ObsidianIcalPlugin.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/Model/Settings.ts
 var DEFAULT_SETTINGS = {
@@ -275,6 +275,9 @@ var Logger = class {
     }
   }
 };
+function logger(isDebug) {
+  return Logger.getInstance(isDebug);
+}
 function log(message, object) {
   return Logger.getInstance().log(message, object);
 }
@@ -990,8 +993,38 @@ var SettingsTab = class extends import_obsidian7.PluginSettingTab {
   }
 };
 
+// src/Service/HeadingsHelper.ts
+var import_obsidian8 = require("obsidian");
+var HeadingsHelper = class {
+  constructor(headings) {
+    this.headings = headings || [];
+  }
+  hasHeadings() {
+    return this.headings.length > 0;
+  }
+  getHeadingForMarkdownLineNumber(lineNumber) {
+    let closestHeading = null;
+    for (const heading of this.headings) {
+      if (heading.position.start.line < lineNumber) {
+        closestHeading = heading;
+      } else {
+        break;
+      }
+    }
+    if (!closestHeading)
+      return null;
+    const dateRegex = /\b(\d{4}-\d{2}-\d{2})\b/;
+    const match = closestHeading.heading.match(dateRegex);
+    if (match) {
+      const date = (0, import_obsidian8.moment)(match[1], "YYYY-MM-DD").toDate();
+      return { getDate: date };
+    }
+    return null;
+  }
+};
+
 // src/ObsidianIcalPlugin.ts
-var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
+var ObsidianIcalPlugin = class extends import_obsidian9.Plugin {
   constructor() {
     super(...arguments);
     this.lastSyncStatus = "Never synced";
@@ -1001,6 +1034,7 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
   async onload() {
     console.log("Loading Obsidian iCal Plugin Pro");
     await this.loadSettings();
+    logger(this.settings.isDebug);
     this.taskIndex = new TaskIndex();
     this.taskFinder = new TaskFinder(this.app.vault);
     this.icalService = new IcalService();
@@ -1011,12 +1045,12 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
     this.registerEvent(this.app.vault.on("delete", (file) => this.removeFileFromIndex(file)));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameFileInIndex(file, oldPath)));
     this.addRibbonIcon("calendar-with-checkmark", "iCal Pro: Sync Now", async () => {
-      new import_obsidian8.Notice("iCal Pro: Starting synchronization...");
+      new import_obsidian9.Notice("iCal Pro: Starting synchronization...");
       try {
         await this.saveCalendar();
-        new import_obsidian8.Notice("iCal Pro: Sync completed successfully!");
+        new import_obsidian9.Notice("iCal Pro: Sync completed successfully!");
       } catch (error) {
-        new import_obsidian8.Notice("iCal Pro: Sync failed.");
+        new import_obsidian9.Notice("iCal Pro: Sync failed.");
         console.error(error);
       }
     });
@@ -1025,9 +1059,9 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
       id: "save-calendar",
       name: "Save and Sync calendar",
       callback: async () => {
-        new import_obsidian8.Notice("iCal Pro: Syncing...");
+        new import_obsidian9.Notice("iCal Pro: Syncing...");
         await this.saveCalendar();
-        new import_obsidian8.Notice("iCal Pro: Sync done.");
+        new import_obsidian9.Notice("iCal Pro: Sync done.");
       }
     });
     this.addCommand({
@@ -1039,7 +1073,7 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
           const url = `https://gist.github.com/${githubUsername}/${githubGistId}`;
           window.open(url, "_blank");
         } else {
-          new import_obsidian8.Notice("GitHub Sync not fully configured.");
+          new import_obsidian9.Notice("GitHub Sync not fully configured.");
         }
       }
     });
@@ -1048,13 +1082,14 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
     }
   }
   async buildIndex() {
+    logger().log("Building initial task index...");
     const files = this.app.vault.getMarkdownFiles();
     for (const file of files) {
       await this.updateFileInIndex(file);
     }
   }
   async updateFileInIndex(file) {
-    if (!(file instanceof import_obsidian8.TFile))
+    if (!(file instanceof import_obsidian9.TFile))
       return;
     if (this.settings.rootPath !== "/" && !file.path.startsWith(this.settings.rootPath)) {
       this.taskIndex.removeFile(file.path);
@@ -1062,12 +1097,13 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
     }
     const cache = this.app.metadataCache.getFileCache(file);
     if (cache && cache.listItems) {
-      const tasks = await this.taskFinder.findTasks(file, cache.listItems, null, this.settings);
+      const headingsHelper = cache.headings ? new HeadingsHelper(cache.headings) : null;
+      const tasks = await this.taskFinder.findTasks(file, cache.listItems, headingsHelper, this.settings);
       this.taskIndex.setTasks(file.path, tasks);
     }
   }
   removeFileFromIndex(file) {
-    if (file instanceof import_obsidian8.TFile) {
+    if (file instanceof import_obsidian9.TFile) {
       this.taskIndex.removeFile(file.path);
     }
   }
@@ -1102,7 +1138,7 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
       return { success: false, message: "Token or Gist ID missing." };
     }
     try {
-      const response = await (0, import_obsidian8.requestUrl)({
+      const response = await (0, import_obsidian9.requestUrl)({
         url: `https://api.github.com/gists/${githubGistId}`,
         method: "GET",
         headers: {
@@ -1124,6 +1160,7 @@ var ObsidianIcalPlugin = class extends import_obsidian8.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+    logger(this.settings.isDebug);
   }
 };
 

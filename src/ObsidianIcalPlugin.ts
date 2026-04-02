@@ -27,22 +27,22 @@ export default class ObsidianIcalPlugin extends Plugin {
 
 		await this.loadSettings();
 		
-		// Initialize Logger with setting
 		logger(this.settings.isDebug);
 
 		this.taskIndex = new TaskIndex();
 		this.taskFinder = new TaskFinder(this.app.vault);
 		this.icalService = new IcalService();
-		this.fileClient = new FileClient(this.app.vault);
+		this.fileClient = new FileClient(this.app.vault, this.settings); // Injected Settings
 		this.gistClient = new GistClient(this.settings);
 
 		// Initialize Task Index
 		await this.buildIndex();
 
-		// Register Vault Events
+		// Register Vault Events for COMPLETE Incremental Indexing
 		this.registerEvent(this.app.vault.on("modify", (file) => this.updateFileInIndex(file)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.removeFileFromIndex(file)));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameFileInIndex(file, oldPath)));
+		this.registerEvent(this.app.vault.on("create", (file) => this.updateFileInIndex(file))); // Added create event
 
 		// Add Ribbon Icon
 		this.addRibbonIcon("calendar-with-checkmark", "iCal Pro: Sync Now", async () => {
@@ -59,7 +59,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		// Command: Save calendar
+		// Commands
 		this.addCommand({
 			id: "save-calendar",
 			name: "Save and Sync calendar",
@@ -70,7 +70,6 @@ export default class ObsidianIcalPlugin extends Plugin {
 			},
 		});
 
-		// Command: Open Gist URL
 		this.addCommand({
 			id: "open-gist-url",
 			name: "Open Gist URL in browser",
@@ -112,7 +111,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 		}
 		const cache = this.app.metadataCache.getFileCache(file);
 		if (cache && cache.listItems) {
-			// Pass HeadingsHelper to TaskFinder to fix Day Planner empty shell
+			// FIXED: Pass real headings helper to TaskFinder
 			const headingsHelper = cache.headings ? new HeadingsHelper(cache.headings) : null;
 			const tasks = await this.taskFinder.findTasks(file, cache.listItems, headingsHelper, this.settings);
 			this.taskIndex.setTasks(file.path, tasks);
@@ -187,7 +186,6 @@ export default class ObsidianIcalPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		// Update logger state if isDebug changed
 		logger(this.settings.isDebug);
 	}
 }

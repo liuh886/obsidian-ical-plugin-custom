@@ -1,25 +1,31 @@
-import { TFile, Vault } from "obsidian";
-import { SettingsManager } from "./SettingsManager";
-import { log } from "./Logger";
+import { Vault, normalizePath, TFolder, TFile } from "obsidian";
+import { Settings } from "./Model/Settings";
 
 export class FileClient {
 	private vault: Vault;
+	private settings: Settings;
 
-	constructor(vault: Vault) {
+	constructor(vault: Vault, settings: Settings) {
 		this.vault = vault;
+		this.settings = settings;
 	}
 
-	async save(calendar: string): Promise<void> {
-		const settings = SettingsManager.settingsManager.settings;
-		const fileRelativePath = `${settings.savePath ? settings.savePath + "/" : ""}${settings.saveFileName}${settings.saveFileExtension}`;
-		const file = this.vault.getAbstractFileByPath(fileRelativePath);
+	public async save(calendar: string): Promise<void> {
+		const { savePath, filename } = this.settings;
+		const path = normalizePath(savePath);
+		const fname = filename || "obsidian.ics";
+		const fullPath = path === "/" ? fname : `${path}/${fname}`;
 
+		const folder = this.vault.getAbstractFileByPath(path);
+		if (!(folder instanceof TFolder) && path !== "/") {
+			await this.vault.createFolder(path);
+		}
+
+		const file = this.vault.getAbstractFileByPath(fullPath);
 		if (file instanceof TFile) {
-			log("File exists: updating");
 			await this.vault.modify(file, calendar);
 		} else {
-			log("File does not exist: creating");
-			await this.vault.create(fileRelativePath, calendar);
+			await this.vault.create(fullPath, calendar);
 		}
 	}
 }

@@ -23,20 +23,19 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 	const alarmRegex = /⏰\s*(\d+)?/;
 	const alarmMatch = summary.match(alarmRegex);
 	if (alarmMatch) {
-		// If digit exists use it, otherwise use settings default
 		alarmOffset = alarmMatch[1] ? parseInt(alarmMatch[1]) : settings.defaultAlarmOffset;
 		summary = summary.replace(alarmMatch[0], "").trim();
 	}
 
-	// Remove bold and italic formatting from summary
+	// Remove bold/italic
 	summary = summary.replace(/\*\*|__/g, "").replace(/\*|_/g, "");
 
-	// Handle Internal Links Parsing
+	// Handle Internal Links
 	summary = parseInternalLinks(summary, settings.howToParseInternalLinks);
 
 	const dates: TaskDate[] = [];
 
-	// Parse emoji-based dates (Tasks plugin style)
+	// Parse emoji dates
 	const datePatterns = [
 		{ name: "Due", emoji: "📅" },
 		{ name: "Scheduled", emoji: "⏳" },
@@ -54,12 +53,10 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 		}
 	}
 
-	// Handle date override from Day Planner if applicable
 	if (dateOverride) {
 		dates.push({ name: "Due", date: dateOverride });
 	}
 
-	// Simple fallback: if no dates found but summary has YYYY-MM-DD
 	if (dates.length === 0) {
 		const genericDateMatch = summary.match(/(\d{4}-\d{2}-\d{2})/);
 		if (genericDateMatch) {
@@ -69,10 +66,11 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 		}
 	}
 
-	if (dates.length === 0) return null;
-
-	// Handle ignoreOldTasks
-	if (settings.ignoreOldTasks) {
+	// CHANGED: If still no dates, we DON'T return null. 
+	// The IcalService will handle this as a VTODO.
+	
+	// Handle ignoreOldTasks ONLY if dates exist
+	if (settings.ignoreOldTasks && dates.length > 0) {
 		const now = new Date();
 		const thresholdDate = new Date(now.setDate(now.getDate() - settings.oldTaskInDays));
 		const isOld = dates.every(d => d.date < thresholdDate);

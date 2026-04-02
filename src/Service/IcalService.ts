@@ -16,11 +16,16 @@ export class IcalService {
 		const includeEvents = settings.includeEventsOrTodos === "EventsAndTodos" || settings.includeEventsOrTodos === "EventsOnly";
 		const includeTodos = settings.includeEventsOrTodos === "EventsAndTodos" || settings.includeEventsOrTodos === "TodosOnly";
 
+		// Split tasks: prioritized by date presence
+		const timedTasks = tasks.filter(t => t.hasAnyDate());
+		const floatingTasks = tasks.filter(t => !t.hasAnyDate());
+
 		if (includeEvents) {
-			this.addEventsToBuilder(tasks, settings, builder);
+			this.addEventsToBuilder(timedTasks, settings, builder);
 		}
 
 		if (includeTodos) {
+			// Todos include both timed (as VTODO) and floating tasks
 			this.addToDosToBuilder(tasks, settings, builder);
 		}
 
@@ -34,10 +39,6 @@ export class IcalService {
 	}
 
 	private addEventToBuilder(task: Task, dateStr: string | null, prependSummary: string, settings: Settings, builder: ICalBuilder): void {
-		if (task.hasAnyDate() === false) {
-			return;
-		}
-
 		if (dateStr === null) {
 			switch (settings.howToProcessMultipleDates) {
 				case "PreferStartDate":
@@ -61,8 +62,6 @@ export class IcalService {
 		const rawDate = task.getRawDate(dateName);
 		if (!rawDate) return;
 
-		// Detect if date has time. 
-		// In Obsidian context, if the time is 00:00:00, it's likely an all-day event
 		const hasTime = rawDate.getHours() !== 0 || rawDate.getMinutes() !== 0;
 		const format = hasTime ? "YYYYMMDD[T]HHmmss" : "YYYYMMDD";
 		const dateStr = task.getDate(dateName, format);
@@ -75,32 +74,23 @@ export class IcalService {
 		builder.addEventProperty("UID", task.getId(), false);
 		builder.addEventProperty("DTSTAMP", task.getDate(null, "YYYYMMDDTHHmmss"), false);
 		
-		// If no time, use VALUE=DATE for all-day event
 		const dateKey = hasTime ? "DTSTART" : "DTSTART;VALUE=DATE";
 		builder.addEventProperty(dateKey, dateValue, false);
 		
-		// If it's a timed event and we have an end time (not supported yet in simple parser, so we add 30m)
-		if (hasTime) {
-			// Placeholder end time logic
-		}
-
 		builder.addEventProperty("SUMMARY", prepend + task.getSummary());
-		
 		const body = task.getBody();
 		if (body) builder.addEventProperty("DESCRIPTION", body);
-		
 		builder.addEventProperty("LOCATION", task.getLocation());
 
-		// Add Alarm if enabled
 		if (settings.enableAlarms && task.alarmOffset !== null) {
 			builder.addAlarm(task.alarmOffset, task.summary);
 		}
-
 		builder.endEvent();
 	}
 
 	private addToDosToBuilder(tasks: Task[], settings: Settings, builder: ICalBuilder): void {
 		tasks.forEach((task) => {
+			// If setting is "Only tasks without dates", skip if it has a date
 			if (settings.isOnlyTasksWithoutDatesAreTodos && task.hasAnyDate()) return;
 			
 			builder.beginToDo();
@@ -109,17 +99,14 @@ export class IcalService {
 			
 			if (task.hasAnyDate()) {
 				builder.addEventProperty("DTSTAMP", task.getDate(null, "YYYYMMDDTHHmmss"), false);
+				if (task.hasA("Due")) {
+					builder.addEventProperty("DUE;VALUE=DATE", task.getDate("Due", "YYYYMMDD"), false);
+				}
 			}
 
 			const body = task.getBody();
 			if (body) builder.addEventProperty("DESCRIPTION", body);
-
 			builder.addEventProperty("LOCATION", task.getLocation());
-
-			if (task.hasA("Due")) {
-				builder.addEventProperty("DUE;VALUE=DATE", task.getDate("Due", "YYYYMMDD"), false);
-			}
-
 			builder.endToDo();
 		});
 	}

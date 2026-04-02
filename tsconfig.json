@@ -4,7 +4,7 @@
 		"inlineSourceMap": true,
 		"inlineSources": true,
 		"module": "CommonJS",
-		"target": "ES6",
+		"target": "ESNext",
 		"allowJs": true,
 		"noImplicitAny": false,
 		"lib": [
@@ -21,14 +21,12 @@
 		"types": [
 			"node",
 			"obsidian"
-		],
-		"outDir": "dist"
+		]
 	},
 	"include": [
 		"src/**/*.ts"
 	],
 	"exclude": [
-		"node_modules",
-		"dist"
+		"node_modules"
 	]
 }

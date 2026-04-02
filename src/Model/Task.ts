@@ -20,7 +20,16 @@ export class Task {
 	}
 
 	public getId(): string {
-		return crypto.randomUUID();
+		// Create a stable, deterministic ID based on the file URI and the content summary.
+		// This prevents duplicates in calendar apps during re-syncs.
+		const source = `${this.fileUri}:${this.summary}`;
+		let hash = 0;
+		for (let i = 0; i < source.length; i++) {
+			const char = source.charCodeAt(i);
+			hash = ((hash << 5) - hash) + char;
+			hash = hash & hash; // Convert to 32bit integer
+		}
+		return `obsidian-ical-${Math.abs(hash)}`;
 	}
 
 	public hasA(taskDateName: string): boolean {
