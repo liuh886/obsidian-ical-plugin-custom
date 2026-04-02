@@ -39,6 +39,9 @@ export class SettingsTab extends PluginSettingTab {
 		const syncInfo = syncCol.createDiv({ cls: "ical-sync-info" });
 		syncInfo.createEl("div", { text: `Last Result: ${this.plugin.lastSyncStatus}`, cls: `ical-status-${this.plugin.lastSyncStatus.toLowerCase()}` });
 		syncInfo.createEl("div", { text: `At: ${this.plugin.lastSyncTime}`, cls: "ical-sync-time" });
+		if (this.plugin.lastSyncStatus === "Failed" && this.plugin.lastSyncMessage) {
+			syncInfo.createEl("div", { text: this.plugin.lastSyncMessage, cls: "ical-sync-error" });
+		}
 		
 		const syncBtn = syncCol.createEl("button", { text: "Sync Now", cls: "mod-cta ical-sync-button" });
 		syncBtn.onClickEvent(async () => {

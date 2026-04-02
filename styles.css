@@ -89,6 +89,15 @@
 .ical-status-success { color: var(--text-success); font-weight: bold; }
 .ical-status-failed { color: var(--text-error); font-weight: bold; }
 .ical-sync-time { font-size: 0.85em; opacity: 0.7; margin-top: 4px; }
+.ical-sync-error { 
+    font-size: 0.75em; 
+    color: var(--text-error); 
+    margin-top: 4px; 
+    word-break: break-all;
+    background: rgba(var(--text-error-rgb), 0.1);
+    padding: 4px;
+    border-radius: 4px;
+}
 
 .ical-sync-button {
     margin-top: 12px;

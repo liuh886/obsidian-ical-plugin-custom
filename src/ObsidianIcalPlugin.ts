@@ -19,6 +19,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 	taskFinder: TaskFinder;
 	lastSyncStatus: string = "Never synced";
 	lastSyncTime: string = "-";
+	lastSyncMessage: string = "";
 
 	async onload() {
 		console.log("Loading Obsidian iCal Plugin Pro");
@@ -135,9 +136,11 @@ export default class ObsidianIcalPlugin extends Plugin {
 
 			this.lastSyncStatus = "Success";
 			this.lastSyncTime = new Date().toLocaleTimeString();
+			this.lastSyncMessage = "";
 		} catch (e) {
 			this.lastSyncStatus = "Failed";
 			this.lastSyncTime = new Date().toLocaleTimeString();
+			this.lastSyncMessage = e.message || String(e);
 			throw e;
 		}
 	}

@@ -275,9 +275,6 @@ var Logger = class {
     }
   }
 };
-function logger(isDebug) {
-  return Logger.getInstance(isDebug);
-}
 function log(message, object) {
   return Logger.getInstance().log(message, object);
 }
@@ -529,13 +526,12 @@ var GistClient = class {
   }
   async save(calendarContent) {
     const { githubPersonalAccessToken, githubGistId, filename } = this.settings;
-    const debugLogger = logger(this.settings.isDebug);
     if (!githubPersonalAccessToken || !githubGistId) {
-      debugLogger.log("Gist sync skipped: Missing Token or Gist ID.");
+      console.log("iCal Pro: Gist sync skipped - missing configuration.");
       return false;
     }
     const fname = filename || "obsidian.ics";
-    console.log(`iCal Pro: Starting Gist sync for Gist ID: ${githubGistId}, Filename: ${fname}`);
+    console.log(`iCal Pro: Attempting to update Gist ${githubGistId} with file ${fname}...`);
     try {
       const response = await (0, import_obsidian3.requestUrl)({
         url: `https://api.github.com/gists/${githubGistId}`,
@@ -553,16 +549,15 @@ var GistClient = class {
           }
         })
       });
-      if (response.status === 200 || response.status === 201) {
-        console.log("iCal Pro: Successfully updated Gist.");
+      if (response.status === 200) {
+        console.log("iCal Pro: Gist updated successfully!");
         return true;
       } else {
-        const errorMsg = `Gist update failed. Status: ${response.status}, Response: ${response.text}`;
-        console.error("iCal Pro:", errorMsg);
-        throw new Error(errorMsg);
+        console.error(`iCal Pro: Gist update failed with status ${response.status}`, response.text);
+        throw new Error(`GitHub API Error: ${response.status}`);
       }
     } catch (error) {
-      console.error("iCal Pro: Gist update error:", error);
+      console.error("iCal Pro: Network error during Gist sync:", error);
       throw error;
     }
   }
