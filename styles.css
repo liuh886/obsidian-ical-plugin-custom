@@ -17,9 +17,10 @@
     font-size: 0.8em;
     opacity: 0.6;
     font-family: var(--font-monospace);
+    margin-left: 10px;
 }
 
-/* --- Status Card (URL Display) --- */
+/* --- Status Card --- */
 .ical-pro-status-card {
     background-color: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
@@ -44,6 +45,7 @@
     color: var(--text-accent);
 }
 
+/* --- URL Container --- */
 .ical-url-container {
     display: flex;
     flex-direction: column;
@@ -57,10 +59,11 @@
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
     font-family: var(--font-monospace);
-    font-size: 0.9em;
-    color: var(--text-muted);
+    font-size: 0.85em;
+    color: var(--text-accent);
     word-break: break-all;
     line-height: 1.4;
+    user-select: all;
 }
 
 .ical-url-placeholder {
@@ -93,7 +96,28 @@
 
 .ical-pro-section-header h3 {
     margin: 0;
-    font-size: 1.2em;
+    font-size: 1.1em;
+    color: var(--text-normal);
+}
+
+/* --- Logic Info & Tips --- */
+.ical-pro-logic-info {
+    background-color: var(--background-secondary-alt);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+    border: 1px solid var(--background-modifier-border);
+}
+
+.ical-pro-logic-info strong {
+    color: var(--text-accent);
+}
+
+.ical-pro-tip {
+    color: var(--text-success) !important;
+    font-weight: 500;
+    margin-top: 5px;
 }
 
 /* --- Info Box --- */
@@ -117,8 +141,8 @@
     color: var(--text-accent);
 }
 
-/* --- Improvements to standard Obsidian elements --- */
+/* --- Utility --- */
 .setting-item {
     border-top: none;
-    padding: 12px 0;
+    padding: 15px 0;
 }

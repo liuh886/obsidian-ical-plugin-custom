@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting, normalizePath, setIcon } from "obsidian";
 import ObsidianIcalPlugin from "./ObsidianIcalPlugin";
+import { FolderSuggest } from "./FolderSuggest";
 
 export class SettingsTab extends PluginSettingTab {
 	plugin: ObsidianIcalPlugin;
@@ -28,54 +29,60 @@ export class SettingsTab extends PluginSettingTab {
 		const urlContainer = statusCard.createDiv({ cls: "ical-url-container" });
 		this.renderUrl(urlContainer);
 
-		// --- Section: General ---
-		this.addHeader(containerEl, "settings", "General Settings");
-
+		// --- SECTION 1: TASK SOURCES ---
+		this.addHeader(containerEl, "search", "1. Where are your tasks?");
+		
 		new Setting(containerEl)
-			.setName("Target directory")
-			.setDesc("The folder where tasks will be scanned. Choose '/' for the entire vault.")
-			.addText((text) =>
-				text
-					.setPlaceholder("e.g., 100_Logs/daily")
+			.setName("Target Directory")
+			.setDesc("The plugin will only scan files inside this folder. Type to search folders.")
+			.addText((text) => {
+				new FolderSuggest(this.app, text.inputEl);
+				text.setPlaceholder("Search folder...")
 					.setValue(this.plugin.settings.rootPath)
 					.onChange(async (value) => {
 						this.plugin.settings.rootPath = normalizePath(value);
 						await this.plugin.saveSettings();
 						this.updateUrlDisplay();
-					})
-			);
+					});
+			});
+
+		// --- SECTION 2: DATE LOGIC ---
+		this.addHeader(containerEl, "calendar-days", "2. How should we find dates?");
+
+		const logicCard = containerEl.createDiv({ cls: "ical-pro-logic-info" });
+		logicCard.createEl("strong", { text: "Current Mode: " });
+		const modeText = logicCard.createSpan({ 
+			text: this.plugin.settings.isDayPlannerPluginFormatEnabled ? "Day Planner Integration" : "Standard (Emoji-based)" 
+		});
 
 		new Setting(containerEl)
-			.setName("File name")
-			.setDesc("The name of your generated .ics file.")
-			.addText((text) =>
-				text
-					.setPlaceholder("obsidian.ics")
-					.setValue(this.plugin.settings.filename)
+			.setName("Day Planner Mode")
+			.setDesc("Enable this if you use the Day Planner plugin style (Date in Heading, Time in task line).")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled)
 					.onChange(async (value) => {
-						this.plugin.settings.filename = value;
+						this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
+						modeText.setText(value ? "Day Planner Integration" : "Standard (Emoji-based)");
 						await this.plugin.saveSettings();
-						this.updateUrlDisplay();
 					})
 			);
 
-		// --- Section: GitHub Sync ---
-		this.addHeader(containerEl, "cloud", "GitHub Sync Configuration");
-		
-		const githubInfo = containerEl.createDiv({ cls: "ical-pro-info-box" });
-		setIcon(githubInfo, "info");
-		const infoText = githubInfo.createDiv();
-		infoText.createSpan({ text: "Sync your calendar online using " });
-		infoText.createEl("a", { text: "GitHub Gist", href: "https://gist.github.com/" });
-		infoText.createSpan({ text: ". Requires a " });
-		infoText.createEl("a", { text: "Personal Access Token", href: "https://github.com/settings/tokens?type=beta" });
-		infoText.createSpan({ text: " with 'Gist' scope." });
+		if (this.plugin.settings.isDayPlannerPluginFormatEnabled) {
+			const tip = containerEl.createEl("p", { cls: "setting-item-description ical-pro-tip" });
+			tip.setText("💡 Tip: Tasks will inherit the date from their parent heading (e.g. ## 2026-04-02).");
+		} else {
+			const tip = containerEl.createEl("p", { cls: "setting-item-description ical-pro-tip" });
+			tip.setText("💡 Tip: Use Emojis in your tasks: 📅 2026-04-02 (Due), 🛫 (Start), ⏳ (Scheduled).");
+		}
+
+		// --- SECTION 3: SYNC ---
+		this.addHeader(containerEl, "cloud", "3. Where to sync?");
 
 		new Setting(containerEl)
 			.setName("GitHub Username")
 			.addText((text) =>
-				text
-					.setPlaceholder("liuh886")
+				text.setPlaceholder("e.g., liuh886")
 					.setValue(this.plugin.settings.githubUsername)
 					.onChange(async (value) => {
 						this.plugin.settings.githubUsername = value;
@@ -85,24 +92,10 @@ export class SettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Personal Access Token")
-			.setDesc("Used to upload your .ics to GitHub.")
-			.addText((text) =>
-				text
-					.setPlaceholder("ghp_...")
-					.setValue(this.plugin.settings.githubPersonalAccessToken)
-					.onChange(async (value) => {
-						this.plugin.settings.githubPersonalAccessToken = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
 			.setName("Gist ID")
-			.setDesc("The ID of the Gist where your file will be saved.")
+			.setDesc("The unique ID of your GitHub Gist.")
 			.addText((text) =>
-				text
-					.setPlaceholder("f4faaf35...")
+				text.setPlaceholder("Paste Gist ID here")
 					.setValue(this.plugin.settings.githubGistId)
 					.onChange(async (value) => {
 						this.plugin.settings.githubGistId = value;
@@ -111,53 +104,37 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			);
 
-		// --- Section: Rules ---
-		this.addHeader(containerEl, "list-checks", "Task & Date Rules");
-
 		new Setting(containerEl)
-			.setName("Day Planner Mode")
-			.setDesc("When enabled, the plugin will look for dates in file headers (useful for Day Planner users). When disabled, only dates inside task lines will be used.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled)
+			.setName("Personal Access Token")
+			.setDesc("Requires 'Gist' scope permissions.")
+			.addText((text) =>
+				text.setPlaceholder("ghp_...")
+					.setValue(this.plugin.settings.githubPersonalAccessToken)
 					.onChange(async (value) => {
-						this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
+						this.plugin.settings.githubPersonalAccessToken = value;
 						await this.plugin.saveSettings();
 					})
 			);
 
+		// --- SECTION 4: ADVANCED ---
+		this.addHeader(containerEl, "sliders", "4. Advanced Rules");
+
 		new Setting(containerEl)
-			.setName("Ignore completed tasks")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.ignoreCompletedTasks)
+			.setName("File Name")
+			.addText((text) =>
+				text.setValue(this.plugin.settings.filename)
 					.onChange(async (value) => {
-						this.plugin.settings.ignoreCompletedTasks = value;
+						this.plugin.settings.filename = value;
 						await this.plugin.saveSettings();
+						this.updateUrlDisplay();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Processing multiple dates")
-			.setDesc("Priority when a task has multiple dates.")
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption("PreferDueDate", "Prefer Due Date")
-					.addOption("PreferStartDate", "Prefer Start Date")
-					.addOption("CreateMultipleEvents", "Create Multiple Events")
-					.setValue(this.plugin.settings.howToProcessMultipleDates)
-					.onChange(async (value) => {
-						this.plugin.settings.howToProcessMultipleDates = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Save Interval (Minutes)")
-			.setDesc("How often to sync in the background.")
+			.setName("Sync Interval")
+			.setDesc("Minutes between automatic background syncs.")
 			.addSlider((slider) =>
-				slider
-					.setLimits(5, 60, 5)
+				slider.setLimits(5, 120, 5)
 					.setValue(this.plugin.settings.periodicSaveInterval)
 					.setDynamicTooltip()
 					.onChange(async (value) => {
@@ -199,7 +176,7 @@ export class SettingsTab extends PluginSettingTab {
 			});
 		} else {
 			container.createEl("p", { 
-				text: "Complete GitHub Sync configuration to generate your URL.",
+				text: "Complete Step 3 (GitHub Sync) to generate your subscription URL.",
 				cls: "ical-url-placeholder"
 			});
 		}
