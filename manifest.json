@@ -1,1 +1,10 @@
-{"id":"ical","name":"iCal","version":"2.0.1-dev","minAppVersion":"0.15.0","description":"Scans your vault for tasks. Creates an iCal file and stores it on Gist. You can then show this calendar in any iCal compatible client such as Outlook, Google Calendar, Apple Calendar, etc.","author":"Andrew Brereton","authorUrl":"https://github.com/andrewbrereton","isDesktopOnly":false}
+{
+	"id": "obsidian-ical-plugin-pro",
+	"name": "iCal Pro",
+	"version": "2.1.0-dev",
+	"minAppVersion": "0.15.0",
+	"description": "Pro version of iCal sync for Obsidian with timezone support, incremental indexing, and multi-line task description.",
+	"author": "liuh886 (forked from Andrew Brereton)",
+	"authorUrl": "https://github.com/liuh886",
+	"isDesktopOnly": false
+}
