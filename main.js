@@ -525,13 +525,19 @@ var GistClient = class {
     this.settings = settings;
   }
   async save(calendarContent) {
-    const { githubPersonalAccessToken, githubGistId, filename } = this.settings;
+    const { githubPersonalAccessToken, githubGistId, filename, isDebug } = this.settings;
     if (!githubPersonalAccessToken || !githubGistId) {
-      console.log("iCal Pro: Gist sync skipped - missing configuration.");
+      if (isDebug)
+        console.log("iCal Pro: Gist sync skipped - missing Token or Gist ID.");
       return false;
     }
     const fname = filename || "obsidian.ics";
-    console.log(`iCal Pro: Attempting to update Gist ${githubGistId} with file ${fname}...`);
+    if (isDebug) {
+      console.log("iCal Pro: Starting Gist Sync...");
+      console.log(`iCal Pro: Target Gist ID: ${githubGistId}`);
+      console.log(`iCal Pro: Target Filename: ${fname}`);
+      console.log(`iCal Pro: Content Length: ${calendarContent.length} chars`);
+    }
     try {
       const response = await (0, import_obsidian3.requestUrl)({
         url: `https://api.github.com/gists/${githubGistId}`,
@@ -550,14 +556,18 @@ var GistClient = class {
         })
       });
       if (response.status === 200) {
-        console.log("iCal Pro: Gist updated successfully!");
+        if (isDebug)
+          console.log("iCal Pro: Gist updated successfully!");
         return true;
       } else {
-        console.error(`iCal Pro: Gist update failed with status ${response.status}`, response.text);
-        throw new Error(`GitHub API Error: ${response.status}`);
+        const errorMsg = `GitHub API Error ${response.status}: ${response.text}`;
+        console.error("iCal Pro: Gist Update Failed.", errorMsg);
+        throw new Error(errorMsg);
       }
     } catch (error) {
-      console.error("iCal Pro: Network error during Gist sync:", error);
+      if (error.status === 404) {
+        throw new Error(`Gist not found. Check your Gist ID and ensure file '${fname}' exists in it.`);
+      }
       throw error;
     }
   }

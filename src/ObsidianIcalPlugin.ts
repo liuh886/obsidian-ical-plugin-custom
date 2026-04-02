@@ -8,6 +8,7 @@ import { TaskIndex } from "./Service/TaskIndex";
 import { TaskFinder } from "./Service/TaskFinder";
 import { logger } from "./Logger";
 import { SettingsTab } from "./SettingsTab";
+import { HeadingsHelper } from "./Service/HeadingsHelper";
 
 export default class ObsidianIcalPlugin extends Plugin {
 	settings: Settings;
@@ -25,6 +26,9 @@ export default class ObsidianIcalPlugin extends Plugin {
 		console.log("Loading Obsidian iCal Plugin Pro");
 
 		await this.loadSettings();
+		
+		// Initialize Logger with setting
+		logger(this.settings.isDebug);
 
 		this.taskIndex = new TaskIndex();
 		this.taskFinder = new TaskFinder(this.app.vault);
@@ -93,6 +97,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 	}
 
 	async buildIndex() {
+		logger().log("Building initial task index...");
 		const files = this.app.vault.getMarkdownFiles();
 		for (const file of files) {
 			await this.updateFileInIndex(file);
@@ -107,7 +112,9 @@ export default class ObsidianIcalPlugin extends Plugin {
 		}
 		const cache = this.app.metadataCache.getFileCache(file);
 		if (cache && cache.listItems) {
-			const tasks = await this.taskFinder.findTasks(file, cache.listItems, null, this.settings);
+			// Pass HeadingsHelper to TaskFinder to fix Day Planner empty shell
+			const headingsHelper = cache.headings ? new HeadingsHelper(cache.headings) : null;
+			const tasks = await this.taskFinder.findTasks(file, cache.listItems, headingsHelper, this.settings);
 			this.taskIndex.setTasks(file.path, tasks);
 		}
 	}
@@ -128,15 +135,11 @@ export default class ObsidianIcalPlugin extends Plugin {
 			const allTasks = this.taskIndex.getAllTasks();
 			const calendar = this.icalService.getCalendar(allTasks, this.settings);
 			
-			// 1. Local Save
 			if (this.settings.isSaveToFileEnabled) {
 				await this.fileClient.save(calendar);
 			}
 			
-			// 2. Gist Sync
 			if (this.settings.isSaveToGistEnabled) {
-				// We call save, and the GistClient uses the settings injected at constructor
-				// (which are updated because settings is an object reference)
 				await this.gistClient.save(calendar);
 			}
 
@@ -184,5 +187,7 @@ export default class ObsidianIcalPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		// Update logger state if isDebug changed
+		logger(this.settings.isDebug);
 	}
 }
