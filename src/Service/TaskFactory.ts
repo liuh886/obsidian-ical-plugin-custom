@@ -11,10 +11,18 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 
 	const statusChar = match[2];
 	const status = (statusChar === "x" || statusChar === "X") ? TaskStatus.Done : TaskStatus.Todo;
+	
+	if (status === TaskStatus.Done && settings.ignoreCompletedTasks) {
+		return null;
+	}
+
 	let summary = match[4].trim();
 
 	// Remove bold and italic formatting from summary
 	summary = summary.replace(/\*\*|__/g, "").replace(/\*|_/g, "");
+
+	// Handle Internal Links Parsing
+	summary = parseInternalLinks(summary, settings.howToParseInternalLinks);
 
 	const dates: TaskDate[] = [];
 
@@ -53,5 +61,32 @@ export function createTaskFromLine(line: string, fileUri: string, dateOverride: 
 
 	if (dates.length === 0) return null;
 
+	// Handle ignoreOldTasks
+	if (settings.ignoreOldTasks) {
+		const now = new Date();
+		const thresholdDate = new Date(now.setDate(now.getDate() - settings.oldTaskInDays));
+		const isOld = dates.every(d => d.date < thresholdDate);
+		if (isOld) return null;
+	}
+
 	return new Task(status, dates, summary, fileUri, body);
+}
+
+function parseInternalLinks(summary: string, mode: string): string {
+	switch (mode) {
+		case "RemoveThem":
+			return summary.replace(/\[\[.*?\]\]/g, "").replace(/\[.*?\]\(.*?\)/g, "").trim();
+		case "KeepTitle":
+		case "PreferTitle":
+			// Replace [[Link|Title]] with Title
+			summary = summary.replace(/\[\[.*?\|(.*?)\]\]/g, "$1");
+			// Replace [[Title]] with Title
+			summary = summary.replace(/\[\[(.*?)\]\]/g, "$1");
+			// Replace [Title](Link) with Title
+			summary = summary.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+			return summary.trim();
+		case "DoNotModifyThem":
+		default:
+			return summary;
+	}
 }

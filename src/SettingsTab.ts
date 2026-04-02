@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, normalizePath, setIcon } from "obsidian";
 import ObsidianIcalPlugin from "./ObsidianIcalPlugin";
 import { FolderSuggest } from "./FolderSuggest";
+import { HOW_TO_PARSE_INTERNAL_LINKS, HOW_TO_PROCESS_MULTIPLE_DATES } from "./Model/Settings";
 
 export class SettingsTab extends PluginSettingTab {
 	plugin: ObsidianIcalPlugin;
@@ -30,11 +31,11 @@ export class SettingsTab extends PluginSettingTab {
 		this.renderUrl(urlContainer);
 
 		// --- SECTION 1: TASK SOURCES ---
-		this.addHeader(containerEl, "search", "1. Where are your tasks?");
+		this.addHeader(containerEl, "search", "1. Task Sources");
 		
 		new Setting(containerEl)
 			.setName("Target Directory")
-			.setDesc("The plugin will only scan files inside this folder. Type to search folders.")
+			.setDesc("The plugin will only scan files inside this folder. Type to search.")
 			.addText((text) => {
 				new FolderSuggest(this.app, text.inputEl);
 				text.setPlaceholder("Search folder...")
@@ -47,7 +48,7 @@ export class SettingsTab extends PluginSettingTab {
 			});
 
 		// --- SECTION 2: DATE LOGIC ---
-		this.addHeader(containerEl, "calendar-days", "2. How should we find dates?");
+		this.addHeader(containerEl, "calendar-days", "2. Date & Time Logic");
 
 		const logicCard = containerEl.createDiv({ cls: "ical-pro-logic-info" });
 		logicCard.createEl("strong", { text: "Current Mode: " });
@@ -57,7 +58,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Day Planner Mode")
-			.setDesc("Enable this if you use the Day Planner plugin style (Date in Heading, Time in task line).")
+			.setDesc("Enable this if you use Day Planner style (Heading = Date, Line = Time).")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled)
@@ -68,21 +69,110 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			);
 
-		if (this.plugin.settings.isDayPlannerPluginFormatEnabled) {
-			const tip = containerEl.createEl("p", { cls: "setting-item-description ical-pro-tip" });
-			tip.setText("💡 Tip: Tasks will inherit the date from their parent heading (e.g. ## 2026-04-02).");
-		} else {
-			const tip = containerEl.createEl("p", { cls: "setting-item-description ical-pro-tip" });
-			tip.setText("💡 Tip: Use Emojis in your tasks: 📅 2026-04-02 (Due), 🛫 (Start), ⏳ (Scheduled).");
-		}
+		new Setting(containerEl)
+			.setName("Multiple Dates Priority")
+			.setDesc("Which date to use if a task has Start, Scheduled, and Due dates.")
+			.addDropdown((dropdown) => {
+				Object.entries(HOW_TO_PROCESS_MULTIPLE_DATES).forEach(([key, value]) => {
+					dropdown.addOption(key, value);
+				});
+				dropdown.setValue(this.plugin.settings.howToProcessMultipleDates)
+					.onChange(async (value) => {
+						this.plugin.settings.howToProcessMultipleDates = value;
+						await this.plugin.saveSettings();
+					});
+			});
 
-		// --- SECTION 3: SYNC ---
-		this.addHeader(containerEl, "cloud", "3. Where to sync?");
+		// --- SECTION 3: FILTERING RULES ---
+		this.addHeader(containerEl, "filter", "3. Filtering Rules");
+
+		new Setting(containerEl)
+			.setName("Ignore Completed Tasks")
+			.setDesc("Completed tasks will not be included in the calendar.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.ignoreCompletedTasks)
+					.onChange(async (value) => {
+						this.plugin.settings.ignoreCompletedTasks = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Filter by Include Tag")
+			.setDesc("Only sync tasks containing these tags (space separated).")
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.isIncludeTasksWithTags)
+				.onChange(async (value) => {
+					this.plugin.settings.isIncludeTasksWithTags = value;
+					await this.plugin.saveSettings();
+				}))
+			.addText((text) => text
+				.setPlaceholder("#calendar #sync")
+				.setValue(this.plugin.settings.includeTasksWithTags)
+				.onChange(async (value) => {
+					this.plugin.settings.includeTasksWithTags = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName("Filter by Exclude Tag")
+			.setDesc("Ignore tasks containing these tags.")
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.isExcludeTasksWithTags)
+				.onChange(async (value) => {
+					this.plugin.settings.isExcludeTasksWithTags = value;
+					await this.plugin.saveSettings();
+				}))
+			.addText((text) => text
+				.setPlaceholder("#ignore #private")
+				.setValue(this.plugin.settings.excludeTasksWithTags)
+				.onChange(async (value) => {
+					this.plugin.settings.excludeTasksWithTags = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName("Ignore Old Tasks")
+			.setDesc("Do not sync tasks older than a certain number of days.")
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.ignoreOldTasks)
+				.onChange(async (value) => {
+					this.plugin.settings.ignoreOldTasks = value;
+					await this.plugin.saveSettings();
+				}))
+			.addText((text) => text
+				.setPlaceholder("365")
+				.setValue(String(this.plugin.settings.oldTaskInDays))
+				.onChange(async (value) => {
+					this.plugin.settings.oldTaskInDays = parseInt(value) || 365;
+					await this.plugin.saveSettings();
+				}));
+
+		// --- SECTION 4: CONTENT FORMATTING ---
+		this.addHeader(containerEl, "edit-3", "4. Content Formatting");
+
+		new Setting(containerEl)
+			.setName("Internal Links")
+			.setDesc("How to handle [[Wikilinks]] and [Markdown](links) in task summaries.")
+			.addDropdown((dropdown) => {
+				Object.entries(HOW_TO_PARSE_INTERNAL_LINKS).forEach(([key, value]) => {
+					dropdown.addOption(key, value);
+				});
+				dropdown.setValue(this.plugin.settings.howToParseInternalLinks)
+					.onChange(async (value) => {
+						this.plugin.settings.howToParseInternalLinks = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		// --- SECTION 5: SYNC CONFIG ---
+		this.addHeader(containerEl, "cloud", "5. GitHub Sync");
 
 		new Setting(containerEl)
 			.setName("GitHub Username")
 			.addText((text) =>
-				text.setPlaceholder("e.g., liuh886")
+				text.setPlaceholder("liuh886")
 					.setValue(this.plugin.settings.githubUsername)
 					.onChange(async (value) => {
 						this.plugin.settings.githubUsername = value;
@@ -93,7 +183,6 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Gist ID")
-			.setDesc("The unique ID of your GitHub Gist.")
 			.addText((text) =>
 				text.setPlaceholder("Paste Gist ID here")
 					.setValue(this.plugin.settings.githubGistId)
@@ -106,7 +195,6 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Personal Access Token")
-			.setDesc("Requires 'Gist' scope permissions.")
 			.addText((text) =>
 				text.setPlaceholder("ghp_...")
 					.setValue(this.plugin.settings.githubPersonalAccessToken)
@@ -116,23 +204,9 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			);
 
-		// --- SECTION 4: ADVANCED ---
-		this.addHeader(containerEl, "sliders", "4. Advanced Rules");
-
-		new Setting(containerEl)
-			.setName("File Name")
-			.addText((text) =>
-				text.setValue(this.plugin.settings.filename)
-					.onChange(async (value) => {
-						this.plugin.settings.filename = value;
-						await this.plugin.saveSettings();
-						this.updateUrlDisplay();
-					})
-			);
-
 		new Setting(containerEl)
 			.setName("Sync Interval")
-			.setDesc("Minutes between automatic background syncs.")
+			.setDesc("Minutes between automatic syncs.")
 			.addSlider((slider) =>
 				slider.setLimits(5, 120, 5)
 					.setValue(this.plugin.settings.periodicSaveInterval)
@@ -176,7 +250,7 @@ export class SettingsTab extends PluginSettingTab {
 			});
 		} else {
 			container.createEl("p", { 
-				text: "Complete Step 3 (GitHub Sync) to generate your subscription URL.",
+				text: "Complete Step 5 (GitHub Sync) to generate your subscription URL.",
 				cls: "ical-url-placeholder"
 			});
 		}

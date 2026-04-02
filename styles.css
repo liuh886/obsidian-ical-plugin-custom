@@ -146,3 +146,17 @@
     border-top: none;
     padding: 15px 0;
 }
+
+.setting-item-control {
+    gap: 10px;
+}
+
+.ical-pro-tip {
+    color: var(--text-success) !important;
+    font-weight: 500;
+    margin-top: 5px;
+    background-color: var(--background-secondary-alt);
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
