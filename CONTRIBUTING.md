@@ -11,5 +11,5 @@ Thank you for your interest in contributing to Obsidian iCal Pro!
 ## Guidelines
 
 - Follow existing code style.
-- Ensure all tests pass.
+- Run `npm run validate` before opening a pull request.
 - Submit descriptive pull requests.

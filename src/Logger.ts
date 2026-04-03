@@ -1,5 +1,3 @@
-import { moment } from "obsidian";
-
 export class Logger {
 	private static instance: Logger;
 	public isDebug: boolean;
@@ -20,7 +18,7 @@ export class Logger {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	public log(message: string, object?: any): void {
 		if (this.isDebug) {
-			console.log("[" + moment().format("YYYY-MM-DD-HH:mm:ss.SSS") + "][info][ical] " + message);
+			console.log("[" + new Date().toISOString() + "][info][ical] " + message);
 			if (object) {
 				console.log(object);
 			}

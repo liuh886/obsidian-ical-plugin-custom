@@ -1,24 +1,77 @@
-# Obsidian iCal Plugin - Architecture Design (DFTD)
+# iCal Pro Architecture (obsidian-ical-plugin-pro)
 
-## 1. Core Objectives
-Transform the plugin from a basic "personal script" into an industrial-grade, robust, and performant Obsidian plugin.
+## Design Goals (The "Pro" Standard)
+- **High-Fidelity Sync**: Strict RFC 5545 compliance (folding, CRLF, escaping) to ensure "First-Class Citizen" status in Apple/Google/Outlook ecosystems.
+- **Zero-Latency Indexing**: $O(1)$ incremental updates via Obsidian Vault/Metadata events, ensuring performance even in 10k+ note vaults.
+- **Semantic Integrity**: Intelligent separation of Time-Blocks (`VEVENT`) and Task-Items (`VTODO`) based on time-of-day precision.
+- **Idempotent Identity**: Guaranteed stable `UID` using deterministic hashing and the `TaskIdentityService` to prevent calendar duplicates across devices/edits.
+- **Privacy First**: Local-first architecture with optional, encrypted-at-rest (Gist) or local-storage (iCloud/Dropbox) sync destinations.
 
-## 2. Architecture & Tech Stack
-- **iCalendar Generation**: Replace manual string concatenation with a robust Object-Oriented `ICalBuilder` that strictly adheres to RFC 5545 (line folding at 75 chars, strict escaping, CRLF).
-- **Incremental Indexing (Cache)**: Replace the O(N) full-vault scan with an event-driven O(1) cache. The plugin will listen to `obsidian.Vault` events (`modify`, `delete`, `rename`, `create`) to update a memory-resident `TaskMap`.
-- **Parsing Engine**: Upgrade parsing using Obsidian's `MetadataCache` to reliably extract task blocks and their multi-line descriptions, avoiding edge-case regex failures.
-- **Timezone Awareness**: Support accurate `X-WR-TIMEZONE` headers and floating time generation systematically via the builder.
+## Architecture Overview
 
-## 3. Data Structures
-- `TaskIndex`: A singleton or service managing `Map<string, Task[]>` (mapping file paths to their parsed tasks) to avoid re-parsing the whole vault.
-- `ICalBuilder`: A utility class with methods like `addEvent()`, `addProperty()`, `build()` to safely construct iCal strings.
+### Plugin Layer (Lifecycle & UI)
+- `src/ObsidianIcalPlugin.ts`
+- Owns Obsidian lifecycle, commands, ribbon actions, and event wiring.
+- Provides a "Thin Entry Point" that delegates all business logic to specialized services.
 
-## 4. Community Submission Readiness
-- **Unique Identification**: Change Plugin ID to `obsidian-ical-plugin-pro` (or similar) to avoid conflict with the original `ical` ID in the community store.
-- **Attribution**: Maintain clear attribution to the original author (Andrew Brereton) in the README and LICENSE.
-- **Code Quality**: Ensure strict TypeScript types, remove all console logs (unless in debug mode), and follow Obsidian's [Developer Policies](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- **User Documentation**: Provide a comprehensive `README.md` with screenshots and clear setup instructions for Google/Apple Calendar.
+### Application Layer (Orchestration)
+- `src/Application/TaskIndexingService.ts`: Manages the memory-resident `TaskIndex`.
+- `src/Application/TaskIdentityService.ts`: The "Soul" of the plugin. Uses fuzzy matching and historical records to maintain a `stableId` for tasks even when they move lines or files.
+- `src/Application/CalendarSyncService.ts`: Orchestrates the multi-destination fan-out (Gist + File).
+- `src/Application/SyncReadinessService.ts`: Pre-flight check for API tokens and configuration validity.
 
-## 5. Future Scalability (Phase 2)
-- Recurrence rules (RRULE) parsing from markdown text.
-- Multi-calendar output (e.g., splitting by `#work` and `#life` tags).
+### Domain Layer (Models)
+- `src/Model/Task.ts`: Rich domain object representing a task, its dates, status, and body.
+- `src/Model/Settings.ts`: Unified configuration with automated migration logic for legacy versions.
+
+### Service Layer (Logic & Parsing)
+- `src/Service/TaskFinder.ts`: Locates tasks within files, implementing **Smart Date Inheritance** (inheriting dates from `YYYY-MM-DD` filenames or Day Planner headings).
+- `src/Service/TaskFactory.ts`: Parses markdown into `Task` objects. Handles **Time-Range Parsing** (e.g., `09:00 - 10:30`) and **Alarm (⏰) Extraction**.
+- `src/Service/IcalService.ts`: The "Translator". Converts domain tasks into iCalendar strings with **Smart Summary Cleaning** (stripping tags, metadata, and comments).
+- `src/Service/ICalBuilder.ts`: A low-level, RFC-compliant string builder for the iCalendar format.
+
+## Core Mechanisms
+
+### 1. Smart Date Inheritance
+iCal Pro goes beyond explicit emoji dates (`📅`, `🛫`). It implements a fallback chain:
+1.  **Explicit Metadata**: Emoji dates or `YYYY-MM-DD` within the task line.
+2.  **Day Planner Context**: Inherits date from the closest Markdown heading (if formatted as a date).
+3.  **Daily Note Context**: Automatically inherits the date from the filename (if `YYYY-MM-DD.md`), turning every checkbox in a daily note into a scheduled task.
+
+### 2. Semantic Task Splitting
+- **Timed Tasks** → `VEVENT`: Appears in the calendar grid with specific start times.
+- **Untimed Tasks** → `VTODO`: Appears in "Reminders" or sidebar task lists with a `DUE` date.
+- **Floating Tasks** → `VTODO`: Appears as unscheduled items in the task manager.
+
+### 3. Native Notifications (VALARM)
+Supports the `⏰` emoji. If a task contains `⏰ 15`, iCal Pro emits a `VALARM` block set to 15 minutes before the start time. If only `⏰` is present, it uses the global `defaultAlarmOffset`.
+
+### 4. Summary & Body Cleaning
+To ensure professional-looking calendar entries, the plugin strips:
+- HTML-like comments (`<!-- id: ... -->`)
+- Obsidian internal link brackets (`[[...]]`)
+- Dataview-style metadata (`key:: value`)
+- Markdown formatting (`**bold**`, `_italic_`, `code`)
+- Tags (`#work`, `#todo`)
+
+## Runtime Flow
+1. **Load**: Settings are loaded and migrated; `TaskIdentityState` is restored.
+2. **Index**: `TaskIndexingService` builds an initial index; Vault events keep it fresh.
+3. **Trigger**: Periodic timer (5-120m) or manual "Sync Now" ribbon/command.
+4. **Validate**: `SyncReadinessService` confirms destinations are reachable.
+5. **Render**: `IcalService` processes all tasks into a single compliant `.ics` string.
+6. **Deploy**: The string is pushed to GitHub Gist and/or written to a local file.
+
+## Evolution Path (Product Roadmap)
+
+### Phase 1: GTD Depth (Current Focus)
+- [ ] **Priority Mapping**: Map `⏫`, `🔼`, `🔽` to RFC `PRIORITY` (1, 5, 9).
+- [ ] **Recurrence Rules (RRULE)**: Convert `🔁 every...` into native iCal recurrence.
+
+### Phase 2: Visibility & UX
+- [ ] **Sync Preview**: A modal showing exactly which tasks are being exported and why.
+- [ ] **Deep-Link Persistence**: Ensure `obsidian://` links are robust across different OS/Vault configurations.
+
+### Phase 3: Bi-Directionality (Long-Term)
+- [ ] **Conflict Resolution**: Researching ways to sync *back* from the calendar (e.g., marking a Gist-synced task as "Done" in Apple Reminders).
+

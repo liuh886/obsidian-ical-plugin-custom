@@ -1,19 +1,21 @@
 import { requestUrl } from "obsidian";
 import { Settings } from "./Model/Settings";
+import { CalendarDestination } from "./Infrastructure/CalendarDestination";
 
-export class GistClient {
-	private settings: Settings;
+export class GistClient implements CalendarDestination {
+	public readonly name = "github-gist";
 
-	constructor(settings: Settings) {
-		this.settings = settings;
+	constructor() {}
+
+	public isEnabled(settings: Settings): boolean {
+		return settings.isSaveToGistEnabled;
 	}
 
-	public async save(calendarContent: string): Promise<boolean> {
-		const { githubPersonalAccessToken, githubGistId, filename, isDebug } = this.settings;
+	public async save(calendarContent: string, settings: Settings): Promise<void> {
+		const { githubPersonalAccessToken, githubGistId, filename, isDebug } = settings;
 
 		if (!githubPersonalAccessToken || !githubGistId) {
-			if (isDebug) console.log("iCal Pro: Gist sync skipped - missing Token or Gist ID.");
-			return false;
+			throw new Error("GitHub Gist sync is enabled but Token or Gist ID is missing.");
 		}
 
 		const fname = filename || "obsidian.ics";
@@ -45,14 +47,14 @@ export class GistClient {
 
 			if (response.status === 200) {
 				if (isDebug) console.log("iCal Pro: Gist updated successfully!");
-				return true;
 			} else {
 				const errorMsg = `GitHub API Error ${response.status}: ${response.text}`;
 				console.error("iCal Pro: Gist Update Failed.", errorMsg);
 				throw new Error(errorMsg);
 			}
-		} catch (error) {
-			if (error.status === 404) {
+		} catch (error: unknown) {
+			const httpError = error as { status?: number };
+			if (httpError.status === 404) {
 				throw new Error(`Gist not found. Check your Gist ID and ensure file '${fname}' exists in it.`);
 			}
 			throw error;

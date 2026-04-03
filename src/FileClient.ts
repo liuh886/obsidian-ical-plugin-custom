@@ -1,17 +1,18 @@
 import { Vault, normalizePath, TFolder, TFile } from "obsidian";
 import { Settings } from "./Model/Settings";
+import { CalendarDestination } from "./Infrastructure/CalendarDestination";
 
-export class FileClient {
-	private vault: Vault;
-	private settings: Settings;
+export class FileClient implements CalendarDestination {
+	public readonly name = "local-file";
 
-	constructor(vault: Vault, settings: Settings) {
-		this.vault = vault;
-		this.settings = settings;
+	constructor(private readonly vault: Vault) {}
+
+	public isEnabled(settings: Settings): boolean {
+		return settings.isSaveToFileEnabled;
 	}
 
-	public async save(calendar: string): Promise<void> {
-		const { savePath, filename } = this.settings;
+	public async save(calendar: string, settings: Settings): Promise<void> {
+		const { savePath, filename } = settings;
 		const path = normalizePath(savePath);
 		const fname = filename || "obsidian.ics";
 		const fullPath = path === "/" ? fname : `${path}/${fname}`;

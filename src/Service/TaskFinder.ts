@@ -1,7 +1,16 @@
-import { Vault, TFile, ListItemCache, HeadingCache } from "obsidian";
+import { Vault, TFile } from "obsidian";
 import { Task } from "../Model/Task";
-import { Settings } from "../Settings";
+import { Settings } from "../Model/Settings";
 import { createTaskFromLine } from "./TaskFactory";
+import { HeadingsHelper } from "./HeadingsHelper";
+
+type TaskLineReference = {
+	position: {
+		start: {
+			line: number;
+		};
+	};
+};
 
 export class TaskFinder {
 	private vault: Vault;
@@ -10,12 +19,13 @@ export class TaskFinder {
 		this.vault = vault;
 	}
 
-	public async findTasks(file: TFile, listItemsCache: ListItemCache[], headings: any, settings: Settings): Promise<Task[]> {
+	public async findTasks(file: TFile, listItemsCache: TaskLineReference[], headings: HeadingsHelper | null, settings: Settings): Promise<Task[]> {
 		const fileCachedContent = await this.vault.cachedRead(file);
 		const lines = fileCachedContent.split("\n");
-		const fileUri = "obsidian://open?vault=" + file.vault.getName() + "&file=" + file.path;
+		const fileUri = `obsidian://open?vault=${encodeURIComponent(file.vault.getName())}&file=${encodeURIComponent(file.path)}`;
+		const fileDate = this.getDateFromFileName(file);
 
-		const isTaskLine = (line: string) => /(\*|-)\s*\[.?]\s*/.test(line);
+		const isTaskLine = (line: string) => /(\*|-)\s*\[.?]\s*/.test(this.normalizeTaskLine(line));
 		const taskPositions = listItemsCache
 			.map((item) => item.position.start.line)
 			.filter((lineNo) => isTaskLine(lines[lineNo]));
@@ -25,48 +35,14 @@ export class TaskFinder {
 		for (let i = 0; i < taskPositions.length; i++) {
 			const startLine = taskPositions[i];
 			const markdownLine = lines[startLine];
+			const normalizedTaskLine = this.normalizeTaskLine(markdownLine);
 
-			let bodyLines: string[] = [];
 			const nextTaskLine = i + 1 < taskPositions.length ? taskPositions[i + 1] : lines.length;
+			const body = this.extractBody(lines, startLine, nextTaskLine);
+			const dateOverride = this.resolveDateOverride(normalizedTaskLine, startLine, headings, settings, fileDate);
 
-			for (let j = startLine + 1; j < nextTaskLine; j++) {
-				const currentLine = lines[j];
-				const trimmed = currentLine.trim();
-
-				if (trimmed === "" && j > startLine + 1) break;
-				if (trimmed === "") continue;
-
-				if (trimmed.startsWith(">") || trimmed.startsWith("-") || trimmed.startsWith("*") || /^\s+/.test(currentLine)) {
-					bodyLines.push(trimmed);
-				} else {
-					break;
-				}
-			}
-
-			const body = bodyLines.join("\\n");
-			let dateOverride: Date | null = null;
-
-			// Handle Day Planner dates if enabled
-			if (settings.isDayPlannerPluginFormatEnabled && headings) {
-				if (this.hasTimes(markdownLine)) {
-					const heading = headings.getHeadingForMarkdownLineNumber(startLine);
-					dateOverride = heading?.getDate ?? null;
-				}
-			}
-
-			if (settings.isIncludeTasksWithTags) {
-				if (!this.hasTag(markdownLine, settings.includeTasksWithTags)) {
-					continue;
-				}
-			}
-
-			if (settings.isExcludeTasksWithTags) {
-				if (this.hasTag(markdownLine, settings.excludeTasksWithTags)) {
-					continue;
-				}
-			}
-
-			const task = createTaskFromLine(markdownLine, fileUri, dateOverride, body, settings);
+			const sourceKey = `${file.path}:${startLine}:${normalizedTaskLine.trim()}`;
+			const task = createTaskFromLine(normalizedTaskLine, fileUri, sourceKey, dateOverride, body, settings);
 			if (task) {
 				results.push(task);
 			}
@@ -75,15 +51,66 @@ export class TaskFinder {
 		return results;
 	}
 
-	private hasTimes(line: string): boolean {
-		const timeRegExp = /\b((?<!\d{4}-\d{2}-)\d{1,2}:(\d{2})(?::\d{2})?\s*(?:[ap][m])?|(?<!\d{4}-\d{2}-)\d{1,2}\s*[ap][m])\b/gi;
-		return timeRegExp.test(line);
+	private resolveDateOverride(
+		line: string,
+		lineNumber: number,
+		headings: HeadingsHelper | null,
+		settings: Settings,
+		fileDate: Date | null,
+	): Date | null {
+		if (this.lineHasExplicitDate(line)) {
+			return null;
+		}
+
+		if (settings.isDayPlannerPluginFormatEnabled && headings) {
+			const headingDate = headings.resolveDateForLine(lineNumber);
+			if (headingDate) {
+				return headingDate;
+			}
+		}
+
+		return fileDate;
 	}
 
-	private hasTag(line: string, tags: string): boolean {
-		if (!tags.includes(" ")) {
-			return line.includes(tags);
+	private lineHasExplicitDate(line: string): boolean {
+		return /[📅⏳🛫✅]\s*\d{4}-\d{2}-\d{2}|\b\d{4}-\d{2}-\d{2}\b/u.test(line);
+	}
+
+	private extractBody(lines: string[], startLine: number, nextTaskLine: number): string {
+		const bodyLines: string[] = [];
+
+		for (let lineIndex = startLine + 1; lineIndex < nextTaskLine; lineIndex++) {
+			const currentLine = lines[lineIndex];
+			const trimmed = currentLine.trim();
+
+			if (trimmed === "" && lineIndex > startLine + 1) {
+				break;
+			}
+
+			if (trimmed === "") {
+				continue;
+			}
+
+			if (trimmed.startsWith(">") || trimmed.startsWith("-") || trimmed.startsWith("*") || /^\s+/.test(currentLine)) {
+				bodyLines.push(trimmed);
+				continue;
+			}
+
+			break;
 		}
-		return tags.split(" ").some((tag) => line.includes(tag));
+
+		return bodyLines.join("\n");
+	}
+
+	private getDateFromFileName(file: TFile): Date | null {
+		const fileWithBaseName = file as TFile & { basename?: string };
+		const fileName = fileWithBaseName.basename
+			? String(fileWithBaseName.basename)
+			: file.path.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+		return /^\d{4}-\d{2}-\d{2}$/.test(fileName) ? new Date(`${fileName}T00:00:00`) : null;
+	}
+
+	private normalizeTaskLine(line: string): string {
+		return line.replace(/^\s*(?:>\s*)+/, "");
 	}
 }

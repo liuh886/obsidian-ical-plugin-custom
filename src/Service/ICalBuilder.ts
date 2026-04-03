@@ -1,5 +1,6 @@
 export class ICalBuilder {
 	private lines: string[] = [];
+	private readonly encoder = new TextEncoder();
 
 	constructor() {
 		this.lines.push("BEGIN:VCALENDAR");
@@ -88,14 +89,31 @@ export class ICalBuilder {
 	}
 
 	private foldLine(line: string): string {
-		if (line.length <= 75) return line;
-		let result = "";
-		let currentLine = line;
-		while (currentLine.length > 75) {
-			result += currentLine.substring(0, 75) + "\r\n ";
-			currentLine = currentLine.substring(75);
+		if (this.encoder.encode(line).length <= 75) {
+			return line;
 		}
-		result += currentLine;
-		return result;
+
+		const segments: string[] = [];
+		let currentSegment = "";
+
+		for (const character of line) {
+			const nextSegment = currentSegment + character;
+			const prefixBytes = segments.length === 0 ? 0 : 1;
+			if (this.encoder.encode(nextSegment).length + prefixBytes > 75) {
+				segments.push(currentSegment);
+				currentSegment = character;
+				continue;
+			}
+
+			currentSegment = nextSegment;
+		}
+
+		if (currentSegment.length > 0) {
+			segments.push(currentSegment);
+		}
+
+		return segments
+			.map((segment, index) => (index === 0 ? segment : ` ${segment}`))
+			.join("\r\n");
 	}
 }

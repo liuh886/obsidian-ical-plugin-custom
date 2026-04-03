@@ -7,35 +7,179 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __markAsModule = (target) => __defProp(target, "__esModule", { value: true });
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __reExport = (target, module2, copyDefault, desc) => {
-  if (module2 && typeof module2 === "object" || typeof module2 === "function") {
-    for (let key of __getOwnPropNames(module2))
-      if (!__hasOwnProp.call(target, key) && (copyDefault || key !== "default"))
-        __defProp(target, key, { get: () => module2[key], enumerable: !(desc = __getOwnPropDesc(module2, key)) || desc.enumerable });
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
   }
-  return target;
+  return to;
 };
-var __toCommonJS = /* @__PURE__ */ ((cache) => {
-  return (module2, temp) => {
-    return cache && cache.get(module2) || (temp = __reExport(__markAsModule({}), module2, 1), cache && cache.set(module2, temp), temp);
-  };
-})(typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : 0);
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // src/main.ts
 var main_exports = {};
 __export(main_exports, {
   default: () => main_default
 });
+module.exports = __toCommonJS(main_exports);
 
 // src/ObsidianIcalPlugin.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian5 = require("obsidian");
+
+// src/Application/SyncExecutionError.ts
+var SyncExecutionError = class extends Error {
+  constructor(message, result) {
+    super(message);
+    __publicField(this, "result", result);
+    this.name = "SyncExecutionError";
+  }
+};
+
+// src/Application/SyncPreviewService.ts
+var SyncPreviewService = class {
+  constructor(icalService) {
+    __publicField(this, "icalService", icalService);
+  }
+  build(tasks, indexStats, settings) {
+    const projection = this.icalService.getProjection(tasks, settings);
+    return {
+      discoveredTaskCount: indexStats.discoveredTaskCount,
+      filteredTaskCount: indexStats.filteredTaskCount,
+      exportedTaskCount: projection.exportedTaskCount,
+      eventCount: projection.eventCount,
+      todoCount: projection.todoCount,
+      filteredReasons: indexStats.filteredReasons,
+      todoReasons: projection.todoReasons
+    };
+  }
+};
+
+// src/Application/CalendarSyncService.ts
+var CalendarSyncService = class {
+  constructor(icalService, destinations) {
+    __publicField(this, "icalService", icalService);
+    __publicField(this, "destinations", destinations);
+    __publicField(this, "previewService");
+    this.previewService = new SyncPreviewService(icalService);
+  }
+  async sync(tasks, indexStats, settings) {
+    const enabledDestinations = this.destinations.filter((destination) => destination.isEnabled(settings));
+    if (enabledDestinations.length === 0) {
+      throw new Error("No save destination enabled. Configure local save or GitHub Gist sync first.");
+    }
+    const calendar = this.icalService.getCalendar(tasks, settings);
+    const preview = this.previewService.build(tasks, indexStats, settings);
+    const destinationResults = [];
+    for (const destination of enabledDestinations) {
+      try {
+        await destination.save(calendar, settings);
+        destinationResults.push({
+          name: destination.name,
+          status: "success",
+          message: "Saved successfully"
+        });
+      } catch (error) {
+        destinationResults.push({
+          name: destination.name,
+          status: "failed",
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    const result = {
+      taskCount: tasks.length,
+      destinations: enabledDestinations.map((destination) => destination.name),
+      destinationResults,
+      preview,
+      calendarSize: calendar.length,
+      eventCount: preview.eventCount,
+      todoCount: preview.todoCount
+    };
+    if (destinationResults.some((entry) => entry.status === "failed")) {
+      throw new SyncExecutionError("One or more destinations failed during sync.", result);
+    }
+    return result;
+  }
+};
+
+// src/Application/ConnectionValidationService.ts
+var ConnectionValidationService = class {
+  constructor(requestFn) {
+    __publicField(this, "requestFn", requestFn);
+  }
+  async validateGist(settings) {
+    const { githubPersonalAccessToken, githubGistId } = settings;
+    if (!githubPersonalAccessToken || !githubGistId) {
+      return { success: false, message: "Token or Gist ID missing." };
+    }
+    try {
+      const response = await this.requestFn({
+        url: `https://api.github.com/gists/${githubGistId}`,
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${githubPersonalAccessToken}`,
+          Accept: "application/vnd.github.v3+json"
+        }
+      });
+      if (response.status === 200) {
+        return { success: true, message: "Connection successful! Gist found." };
+      }
+      return { success: false, message: `GitHub returned status ${response.status}` };
+    } catch (e) {
+      return { success: false, message: "Network error or invalid Token/Gist ID." };
+    }
+  }
+};
+
+// src/Application/DiagnosticsService.ts
+var DiagnosticsService = class {
+  build(input) {
+    const payload = {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      settings: this.redactSettings(input.settings),
+      readiness: input.readiness,
+      preview: input.preview,
+      recentSyncResults: input.recentSyncResults
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+  redactSettings(settings) {
+    return {
+      ...settings,
+      githubPersonalAccessToken: settings.githubPersonalAccessToken ? "***redacted***" : ""
+    };
+  }
+};
 
 // src/Model/Settings.ts
+var HOW_TO_PARSE_INTERNAL_LINKS = {
+  DoNotModifyThem: "Do not modify them (default)",
+  KeepTitle: "Keep the title",
+  PreferTitle: "Prefer the title",
+  RemoveThem: "Remove them"
+};
+var INCLUDE_EVENTS_OR_TODOS = {
+  EventsOnly: "Events only",
+  EventsAndTodos: "Events and TODO items",
+  TodosOnly: "TODO items only"
+};
+var HOW_TO_PROCESS_MULTIPLE_DATES = {
+  PreferDueDate: "Prefer due date (default)",
+  PreferStartDate: "Prefer start date",
+  CreateMultipleEvents: "Create an event per start/scheduled/due date"
+};
+var LINK_PLACEMENT = {
+  Description: "Description only",
+  Location: "Location only",
+  Both: "Description & Location"
+};
 var DEFAULT_SETTINGS = {
   githubPersonalAccessToken: "",
   githubGistId: "",
@@ -45,10 +189,7 @@ var DEFAULT_SETTINGS = {
   periodicSaveInterval: 5,
   isSaveToGistEnabled: false,
   isSaveToFileEnabled: false,
-  isSaveToWebEnabled: false,
-  savePath: "",
-  saveFileName: "",
-  saveFileExtension: ".ical",
+  savePath: "/",
   howToParseInternalLinks: "DoNotModifyThem",
   ignoreCompletedTasks: false,
   isDebug: false,
@@ -58,21 +199,598 @@ var DEFAULT_SETTINGS = {
   oldTaskInDays: 365,
   howToProcessMultipleDates: "PreferDueDate",
   isDayPlannerPluginFormatEnabled: false,
+  respectGlobalTaskFilter: false,
+  globalTaskFilterTags: "#task",
+  isIncludeCategoriesEnabled: false,
+  includeCategories: "",
+  isExcludeCategoriesEnabled: false,
+  excludeCategories: "",
   isIncludeTasksWithTags: false,
   includeTasksWithTags: "#calendar",
   isExcludeTasksWithTags: false,
   excludeTasksWithTags: "#ignore",
   rootPath: "/",
-  isIncludeLinkInDescription: false,
-  secretKey: "",
+  sourceRules: [],
+  linkPlacement: "Location",
   enableAlarms: true,
   defaultAlarmOffset: 20
+};
+var migrateSettings = (raw) => {
+  var _a, _b, _c;
+  const settings = Object.assign({}, DEFAULT_SETTINGS, raw != null ? raw : {});
+  const legacyFilename = (_a = settings.saveFileName) == null ? void 0 : _a.trim();
+  if (!(raw == null ? void 0 : raw.filename) && legacyFilename) {
+    const extension = ((_b = settings.saveFileExtension) == null ? void 0 : _b.trim()) || ".ics";
+    settings.filename = `${legacyFilename}${extension.startsWith(".") ? extension : `.${extension}`}`;
+  }
+  if (((_c = raw == null ? void 0 : raw.isIncludeLinkInDescription) != null ? _c : null) !== null && !(raw == null ? void 0 : raw.linkPlacement)) {
+    settings.linkPlacement = (raw == null ? void 0 : raw.isIncludeLinkInDescription) ? "Both" : "Location";
+  }
+  if (!settings.savePath) {
+    settings.savePath = "/";
+  }
+  if (!Array.isArray(raw == null ? void 0 : raw.sourceRules) || raw.sourceRules.length === 0) {
+    settings.sourceRules = [{ path: settings.rootPath || "/", category: "" }];
+  }
+  settings.sourceRules = settings.sourceRules.map((rule) => {
+    var _a2, _b2, _c2;
+    return {
+      path: ((_a2 = rule == null ? void 0 : rule.path) == null ? void 0 : _a2.trim()) ? rule.path.trim() : "/",
+      category: (_c2 = (_b2 = rule == null ? void 0 : rule.category) == null ? void 0 : _b2.trim()) != null ? _c2 : ""
+    };
+  }).filter((rule, index, rules) => rule.path.length > 0 && rules.findIndex((candidate) => candidate.path === rule.path && candidate.category === rule.category) === index);
+  return settings;
+};
+var prepareSettingsForSave = (settings) => {
+  var _a, _b;
+  const normalizedSourceRules = settings.sourceRules.length > 0 ? settings.sourceRules : [{ path: "/", category: "" }];
+  return {
+    ...settings,
+    sourceRules: normalizedSourceRules,
+    rootPath: (_b = (_a = normalizedSourceRules[0]) == null ? void 0 : _a.path) != null ? _b : settings.rootPath
+  };
+};
+
+// src/Application/PluginSettingsStore.ts
+var TASK_IDENTITY_STATE_KEY = "_taskIdentityState";
+var SYNC_HISTORY_KEY = "_syncHistory";
+var PluginSettingsStore = class {
+  constructor(plugin) {
+    __publicField(this, "plugin", plugin);
+  }
+  async load() {
+    return await this.plugin.loadData();
+  }
+  loadTaskIdentityState(raw) {
+    const state = raw == null ? void 0 : raw[TASK_IDENTITY_STATE_KEY];
+    return typeof state === "object" && state !== null ? state : {};
+  }
+  loadSyncHistory(raw) {
+    const history = raw == null ? void 0 : raw[SYNC_HISTORY_KEY];
+    return Array.isArray(history) ? history : [];
+  }
+  async save(settings, taskIdentityState, syncHistory = []) {
+    const persistedSettings = prepareSettingsForSave(settings);
+    await this.plugin.saveData({
+      ...persistedSettings,
+      [TASK_IDENTITY_STATE_KEY]: taskIdentityState,
+      [SYNC_HISTORY_KEY]: syncHistory.slice(0, 10)
+    });
+  }
+};
+
+// src/Application/SyncAutomationService.ts
+var SyncAutomationService = class {
+  constructor(readinessService) {
+    __publicField(this, "readinessService", readinessService);
+  }
+  configurePeriodicSync(settings, runSync, registerInterval, currentIntervalId) {
+    if (currentIntervalId !== null) {
+      window.clearInterval(currentIntervalId);
+    }
+    if (!settings.isPeriodicSaveEnabled) {
+      return null;
+    }
+    const intervalId = window.setInterval(() => {
+      void runSync().catch((error) => {
+        console.error("iCal Pro: Periodic sync failed", error);
+      });
+    }, settings.periodicSaveInterval * 60 * 1e3);
+    registerInterval(intervalId);
+    return intervalId;
+  }
+  async runStartupSyncIfReady(settings, runSync) {
+    if (!this.readinessService.evaluate(settings).ready) {
+      return;
+    }
+    try {
+      await runSync();
+    } catch (error) {
+      console.error("iCal Pro: Startup sync failed", error);
+    }
+  }
+};
+
+// src/Application/SyncReadinessService.ts
+var SyncReadinessService = class {
+  evaluate(settings) {
+    const activeDestinations = [];
+    const issues = [];
+    if (settings.isSaveToFileEnabled) {
+      activeDestinations.push("local-file");
+      if (!settings.savePath) {
+        issues.push("Local file export is enabled but no save path is configured.");
+      }
+    }
+    if (settings.isSaveToGistEnabled) {
+      activeDestinations.push("github-gist");
+      if (!settings.githubUsername) {
+        issues.push("GitHub Gist sync is enabled but username is missing.");
+      }
+      if (!settings.githubGistId) {
+        issues.push("GitHub Gist sync is enabled but Gist ID is missing.");
+      }
+      if (!settings.githubPersonalAccessToken) {
+        issues.push("GitHub Gist sync is enabled but personal access token is missing.");
+      }
+    }
+    if (activeDestinations.length === 0) {
+      issues.push("No active calendar destination. Enable local file export or GitHub Gist sync.");
+    }
+    return {
+      ready: issues.length === 0,
+      activeDestinations,
+      issues
+    };
+  }
+};
+
+// src/Application/TaskIdentityService.ts
+var TaskIdentityService = class {
+  constructor(state = {}) {
+    __publicField(this, "state", state);
+  }
+  assign(filePath, tasks) {
+    var _a;
+    const previousRecords = (_a = this.state[filePath]) != null ? _a : [];
+    const consumedRecords = /* @__PURE__ */ new Set();
+    const nextRecords = [];
+    for (const task of tasks) {
+      const recordIndex = this.findBestMatch(task, previousRecords, consumedRecords);
+      const stableId = recordIndex === -1 ? this.createId() : previousRecords[recordIndex].id;
+      task.setStableId(stableId);
+      if (recordIndex !== -1) {
+        consumedRecords.add(recordIndex);
+      }
+      nextRecords.push(this.toRecord(task));
+    }
+    this.state[filePath] = nextRecords;
+  }
+  removeFile(filePath) {
+    delete this.state[filePath];
+  }
+  renameFile(oldPath, newPath) {
+    if (!this.state[oldPath]) {
+      return;
+    }
+    this.state[newPath] = this.state[oldPath];
+    delete this.state[oldPath];
+  }
+  getState() {
+    return this.state;
+  }
+  findBestMatch(task, records, consumedRecords) {
+    let bestIndex = -1;
+    let bestScore = -1;
+    records.forEach((record, index) => {
+      if (consumedRecords.has(index)) {
+        return;
+      }
+      const score = this.score(task, record);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+    return bestScore >= 50 ? bestIndex : -1;
+  }
+  score(task, record) {
+    if (task.sourceKey === record.sourceKey) {
+      return 100;
+    }
+    const taskLine = this.extractLineNumber(task.sourceKey);
+    let score = 0;
+    if (taskLine !== null && taskLine === record.line) {
+      score += 70;
+    }
+    if (task.summary === record.summary) {
+      score += 20;
+    }
+    if (task.body === record.body) {
+      score += 10;
+    }
+    if (this.getDatesKey(task) === record.datesKey) {
+      score += 20;
+    }
+    return score;
+  }
+  toRecord(task) {
+    var _a;
+    return {
+      id: task.getId(),
+      sourceKey: task.sourceKey,
+      line: (_a = this.extractLineNumber(task.sourceKey)) != null ? _a : -1,
+      summary: task.summary,
+      body: task.body,
+      datesKey: this.getDatesKey(task)
+    };
+  }
+  getDatesKey(task) {
+    return task.dates.map((date) => `${date.name}:${date.date.toISOString()}`).join("|");
+  }
+  extractLineNumber(sourceKey) {
+    const match = sourceKey.match(/:(\d+):/);
+    return match ? Number(match[1]) : null;
+  }
+  createId() {
+    return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `obsidian-ical-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+};
+
+// src/Service/HeadingsHelper.ts
+var HeadingsHelper = class {
+  constructor(headings) {
+    __publicField(this, "headings", headings);
+  }
+  resolveDateForLine(lineNumber) {
+    let closestHeading = null;
+    for (const heading of this.headings) {
+      if (heading.position.start.line < lineNumber) {
+        closestHeading = heading;
+      } else {
+        break;
+      }
+    }
+    if (!closestHeading) return null;
+    const dateRegex = /\b(\d{4}-\d{2}-\d{2})\b/;
+    const match = closestHeading.heading.match(dateRegex);
+    if (match) {
+      return /* @__PURE__ */ new Date(`${match[1]}T00:00:00`);
+    }
+    return null;
+  }
+};
+
+// src/Logger.ts
+var _Logger = class _Logger {
+  constructor(isDebug) {
+    __publicField(this, "isDebug");
+    this.isDebug = isDebug;
+  }
+  static getInstance(isDebug) {
+    if (!_Logger.instance) {
+      _Logger.instance = new _Logger(isDebug != null ? isDebug : false);
+    } else if (isDebug !== void 0) {
+      _Logger.instance.isDebug = isDebug;
+    }
+    return _Logger.instance;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  log(message, object) {
+    if (this.isDebug) {
+      console.log("[" + (/* @__PURE__ */ new Date()).toISOString() + "][info][ical] " + message);
+      if (object) {
+        console.log(object);
+      }
+    }
+  }
+};
+__publicField(_Logger, "instance");
+var Logger = _Logger;
+function logger(isDebug) {
+  return Logger.getInstance(isDebug);
+}
+
+// src/Application/TaskFilterPolicy.ts
+var TaskFilterPolicy = class {
+  apply(tasks, settings) {
+    return this.applyWithReport(tasks, settings).tasks;
+  }
+  applyWithReport(tasks, settings) {
+    const filteredTasks = [];
+    const reasonCounts = /* @__PURE__ */ new Map();
+    tasks.forEach((task) => {
+      var _a;
+      const reason = this.getFirstFailureReason(task, settings);
+      if (reason) {
+        reasonCounts.set(reason, ((_a = reasonCounts.get(reason)) != null ? _a : 0) + 1);
+        return;
+      }
+      filteredTasks.push(task);
+    });
+    return {
+      tasks: filteredTasks,
+      reasons: [...reasonCounts.entries()].map(([reason, count]) => ({ reason, count }))
+    };
+  }
+  getFirstFailureReason(task, settings) {
+    const categories = new Set(task.getCategories());
+    if (settings.respectGlobalTaskFilter) {
+      const requiredTags = this.parseFilterList(settings.globalTaskFilterTags, true);
+      if (requiredTags.length > 0 && !requiredTags.some((tag) => categories.has(tag))) {
+        return "Missing required global task tag";
+      }
+    }
+    if (settings.isIncludeTasksWithTags) {
+      const includeTags = this.parseFilterList(settings.includeTasksWithTags, true);
+      if (includeTags.length > 0 && !includeTags.some((tag) => categories.has(tag))) {
+        return "Missing required include tag";
+      }
+    }
+    if (settings.isExcludeTasksWithTags) {
+      const excludeTags = this.parseFilterList(settings.excludeTasksWithTags, true);
+      if (excludeTags.some((tag) => categories.has(tag))) {
+        return "Matched excluded tag";
+      }
+    }
+    if (settings.isIncludeCategoriesEnabled) {
+      const includes = this.parseFilterList(settings.includeCategories, false);
+      if (includes.length > 0 && !includes.some((value) => categories.has(value))) {
+        return "Missing required category";
+      }
+    }
+    if (settings.isExcludeCategoriesEnabled) {
+      const excludes = this.parseFilterList(settings.excludeCategories, false);
+      if (excludes.some((value) => categories.has(value))) {
+        return "Matched excluded category";
+      }
+    }
+    return null;
+  }
+  parseFilterList(value, stripHash) {
+    return value.split(/\s+/).map((item) => item.trim()).filter((item) => item.length > 0).map((item) => stripHash ? item.replace(/^#/, "") : item);
+  }
+};
+
+// src/Application/TaskIndexingService.ts
+var INDEX_REBUILD_SETTINGS = [
+  "sourceRules",
+  "isDayPlannerPluginFormatEnabled",
+  "respectGlobalTaskFilter",
+  "globalTaskFilterTags",
+  "isIncludeCategoriesEnabled",
+  "includeCategories",
+  "isExcludeCategoriesEnabled",
+  "excludeCategories",
+  "isIncludeTasksWithTags",
+  "includeTasksWithTags",
+  "isExcludeTasksWithTags",
+  "excludeTasksWithTags",
+  "ignoreCompletedTasks",
+  "ignoreOldTasks",
+  "oldTaskInDays",
+  "howToParseInternalLinks"
+];
+var TaskIndexingService = class {
+  constructor(vault, metadataCache, taskIndex, taskFinder, taskIdentityService, taskFilterPolicy = new TaskFilterPolicy()) {
+    __publicField(this, "vault", vault);
+    __publicField(this, "metadataCache", metadataCache);
+    __publicField(this, "taskIndex", taskIndex);
+    __publicField(this, "taskFinder", taskFinder);
+    __publicField(this, "taskIdentityService", taskIdentityService);
+    __publicField(this, "taskFilterPolicy", taskFilterPolicy);
+    __publicField(this, "fileStats", /* @__PURE__ */ new Map());
+  }
+  async rebuild(settings) {
+    logger().log("Rebuilding task index...");
+    this.taskIndex.clear();
+    for (const file of this.vault.getMarkdownFiles()) {
+      await this.indexFile(file, settings);
+    }
+  }
+  async indexFile(file, settings) {
+    var _a, _b;
+    const sourceRule = this.getSourceRuleForFile(file.path, settings);
+    if (!sourceRule) {
+      this.taskIndex.removeFile(file.path);
+      this.fileStats.delete(file.path);
+      return;
+    }
+    const cache = this.metadataCache.getFileCache(file);
+    const fallbackContent = await this.vault.cachedRead(file);
+    const listItems = ((_a = cache == null ? void 0 : cache.listItems) == null ? void 0 : _a.length) ? cache.listItems : this.buildFallbackListItems(fallbackContent);
+    if (listItems.length === 0) {
+      this.taskIndex.removeFile(file.path);
+      this.fileStats.delete(file.path);
+      return;
+    }
+    const headings = ((_b = cache == null ? void 0 : cache.headings) == null ? void 0 : _b.length) ? new HeadingsHelper(cache.headings) : this.buildFallbackHeadings(fallbackContent);
+    const tasks = await this.taskFinder.findTasks(file, listItems, headings, settings);
+    const categories = this.getCategoriesForFile(file.path, sourceRule);
+    tasks.forEach((task) => task.setCategories([.../* @__PURE__ */ new Set([...task.getCategories(), ...categories])]));
+    const filterReport = this.taskFilterPolicy.applyWithReport(tasks, settings);
+    const filteredTasks = filterReport.tasks;
+    this.fileStats.set(file.path, {
+      discoveredTaskCount: tasks.length,
+      filteredTaskCount: Math.max(tasks.length - filteredTasks.length, 0),
+      exportedTaskCount: filteredTasks.length,
+      filteredReasons: filterReport.reasons
+    });
+    this.taskIdentityService.assign(file.path, filteredTasks);
+    this.taskIndex.setTasks(file.path, filteredTasks);
+  }
+  removeFile(path) {
+    this.taskIndex.removeFile(path);
+    this.fileStats.delete(path);
+    this.taskIdentityService.removeFile(path);
+  }
+  getAllTasks() {
+    return this.taskIndex.getAllTasks();
+  }
+  getTaskIdentityState() {
+    return this.taskIdentityService.getState();
+  }
+  getIndexStats() {
+    const reasonCounts = /* @__PURE__ */ new Map();
+    const totals = [...this.fileStats.values()].reduce((acc, stats) => {
+      stats.filteredReasons.forEach(({ reason, count }) => {
+        var _a;
+        reasonCounts.set(reason, ((_a = reasonCounts.get(reason)) != null ? _a : 0) + count);
+      });
+      return {
+        discoveredTaskCount: acc.discoveredTaskCount + stats.discoveredTaskCount,
+        filteredTaskCount: acc.filteredTaskCount + stats.filteredTaskCount,
+        exportedTaskCount: acc.exportedTaskCount + stats.exportedTaskCount,
+        filteredReasons: []
+      };
+    }, {
+      discoveredTaskCount: 0,
+      filteredTaskCount: 0,
+      exportedTaskCount: 0,
+      filteredReasons: []
+    });
+    return {
+      ...totals,
+      filteredReasons: [...reasonCounts.entries()].map(([reason, count]) => ({ reason, count }))
+    };
+  }
+  async renameFile(file, oldPath, settings) {
+    this.taskIndex.removeFile(oldPath);
+    this.taskIdentityService.renameFile(oldPath, file.path);
+    await this.indexFile(file, settings);
+  }
+  async handleSettingsChange(previous, next) {
+    if (!INDEX_REBUILD_SETTINGS.some((key) => previous[key] !== next[key])) {
+      return;
+    }
+    await this.rebuild(next);
+  }
+  buildFallbackListItems(content) {
+    return content.split("\n").map((line, index) => ({ line, index })).filter(({ line }) => /^\s*(?:>\s*)*[*+-]\s*\[.?]\s*/.test(line)).map(({ index }) => ({ position: { start: { line: index } } }));
+  }
+  buildFallbackHeadings(content) {
+    const headings = content.split("\n").map((line, index) => ({ line, index })).filter(({ line }) => /^\s{0,3}#{1,6}\s+/.test(line)).map(({ line, index }) => ({
+      heading: line.replace(/^\s{0,3}#{1,6}\s+/, "").trim(),
+      position: { start: { line: index } }
+    }));
+    return headings.length > 0 ? new HeadingsHelper(headings) : null;
+  }
+  getSourceRuleForFile(filePath, settings) {
+    const rules = settings.sourceRules;
+    const matchingRules = rules.filter((rule) => this.isFileWithinRootPath(filePath, rule.path));
+    if (matchingRules.length === 0) {
+      return null;
+    }
+    return matchingRules.sort((left, right) => right.path.length - left.path.length)[0];
+  }
+  isFileWithinRootPath(filePath, rootPath) {
+    if (rootPath === "/" || rootPath === "") {
+      return true;
+    }
+    const normalizedRoot = rootPath.replace(/\/+$/, "");
+    return filePath === normalizedRoot || filePath.startsWith(`${normalizedRoot}/`);
+  }
+  getCategoriesForFile(filePath, sourceRule) {
+    const categories = /* @__PURE__ */ new Set();
+    if (sourceRule.category.trim().length > 0) {
+      categories.add(sourceRule.category.trim());
+    }
+    const folderPath = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : "";
+    if (folderPath) {
+      categories.add(folderPath);
+    }
+    return [...categories];
+  }
+};
+
+// src/FileClient.ts
+var import_obsidian = require("obsidian");
+var FileClient = class {
+  constructor(vault) {
+    __publicField(this, "vault", vault);
+    __publicField(this, "name", "local-file");
+  }
+  isEnabled(settings) {
+    return settings.isSaveToFileEnabled;
+  }
+  async save(calendar, settings) {
+    const { savePath, filename } = settings;
+    const path = (0, import_obsidian.normalizePath)(savePath);
+    const fname = filename || "obsidian.ics";
+    const fullPath = path === "/" ? fname : `${path}/${fname}`;
+    const folder = this.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof import_obsidian.TFolder) && path !== "/") {
+      await this.vault.createFolder(path);
+    }
+    const file = this.vault.getAbstractFileByPath(fullPath);
+    if (file instanceof import_obsidian.TFile) {
+      await this.vault.modify(file, calendar);
+    } else {
+      await this.vault.create(fullPath, calendar);
+    }
+  }
+};
+
+// src/GistClient.ts
+var import_obsidian2 = require("obsidian");
+var GistClient = class {
+  constructor() {
+    __publicField(this, "name", "github-gist");
+  }
+  isEnabled(settings) {
+    return settings.isSaveToGistEnabled;
+  }
+  async save(calendarContent, settings) {
+    const { githubPersonalAccessToken, githubGistId, filename, isDebug } = settings;
+    if (!githubPersonalAccessToken || !githubGistId) {
+      throw new Error("GitHub Gist sync is enabled but Token or Gist ID is missing.");
+    }
+    const fname = filename || "obsidian.ics";
+    if (isDebug) {
+      console.log("iCal Pro: Starting Gist Sync...");
+      console.log(`iCal Pro: Target Gist ID: ${githubGistId}`);
+      console.log(`iCal Pro: Target Filename: ${fname}`);
+      console.log(`iCal Pro: Content Length: ${calendarContent.length} chars`);
+    }
+    try {
+      const response = await (0, import_obsidian2.requestUrl)({
+        url: `https://api.github.com/gists/${githubGistId}`,
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${githubPersonalAccessToken}`,
+          "Accept": "application/vnd.github.v3+json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          files: {
+            [fname]: {
+              content: calendarContent
+            }
+          }
+        })
+      });
+      if (response.status === 200) {
+        if (isDebug) console.log("iCal Pro: Gist updated successfully!");
+      } else {
+        const errorMsg = `GitHub API Error ${response.status}: ${response.text}`;
+        console.error("iCal Pro: Gist Update Failed.", errorMsg);
+        throw new Error(errorMsg);
+      }
+    } catch (error) {
+      const httpError = error;
+      if (httpError.status === 404) {
+        throw new Error(`Gist not found. Check your Gist ID and ensure file '${fname}' exists in it.`);
+      }
+      throw error;
+    }
+  }
 };
 
 // src/Service/ICalBuilder.ts
 var ICalBuilder = class {
   constructor() {
-    this.lines = [];
+    __publicField(this, "lines", []);
+    __publicField(this, "encoder", new TextEncoder());
     this.lines.push("BEGIN:VCALENDAR");
     this.lines.push("VERSION:2.0");
     this.lines.push("PRODID:-//liuh886//obsidian-ical-plugin-pro v2.1.0//EN");
@@ -136,21 +854,29 @@ var ICalBuilder = class {
     return this.lines.map((line) => this.foldLine(line)).join("\r\n") + "\r\n";
   }
   escapeText(text) {
-    if (!text)
-      return "";
+    if (!text) return "";
     return text.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n").replace(/\r/g, "");
   }
   foldLine(line) {
-    if (line.length <= 75)
+    if (this.encoder.encode(line).length <= 75) {
       return line;
-    let result = "";
-    let currentLine = line;
-    while (currentLine.length > 75) {
-      result += currentLine.substring(0, 75) + "\r\n ";
-      currentLine = currentLine.substring(75);
     }
-    result += currentLine;
-    return result;
+    const segments = [];
+    let currentSegment = "";
+    for (const character of line) {
+      const nextSegment = currentSegment + character;
+      const prefixBytes = segments.length === 0 ? 0 : 1;
+      if (this.encoder.encode(nextSegment).length + prefixBytes > 75) {
+        segments.push(currentSegment);
+        currentSegment = character;
+        continue;
+      }
+      currentSegment = nextSegment;
+    }
+    if (currentSegment.length > 0) {
+      segments.push(currentSegment);
+    }
+    return segments.map((segment, index) => index === 0 ? segment : ` ${segment}`).join("\r\n");
   }
 };
 
@@ -159,427 +885,716 @@ var IcalService = class {
   getCalendar(tasks, settings) {
     const builder = new ICalBuilder();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    builder.setCalendarName("Obsidian Calendar").setTimezone(timezone).setLastUpdated(new Date()).setRefreshInterval(settings.periodicSaveInterval || 15);
+    builder.setCalendarName("Obsidian Calendar").setTimezone(timezone).setLastUpdated(/* @__PURE__ */ new Date()).setRefreshInterval(settings.periodicSaveInterval || 15);
     const includeEvents = settings.includeEventsOrTodos === "EventsAndTodos" || settings.includeEventsOrTodos === "EventsOnly";
     const includeTodos = settings.includeEventsOrTodos === "EventsAndTodos" || settings.includeEventsOrTodos === "TodosOnly";
+    const projection = this.getTaskBuckets(tasks, settings);
+    const {
+      exportableTasks,
+      datedTasks,
+      timedTasks,
+      untimedTasks,
+      floatingTasks
+    } = projection;
     if (includeEvents) {
-      this.addEventsToBuilder(tasks, settings, builder);
+      const eventTasks = settings.includeEventsOrTodos === "EventsAndTodos" ? timedTasks : datedTasks;
+      this.addEventsToBuilder(eventTasks, settings, builder, timezone);
     }
     if (includeTodos) {
-      this.addToDosToBuilder(tasks, settings, builder);
+      const todoTasks = settings.includeEventsOrTodos === "EventsAndTodos" ? [...untimedTasks, ...floatingTasks] : settings.isOnlyTasksWithoutDatesAreTodos ? floatingTasks : exportableTasks;
+      this.addToDosToBuilder(todoTasks, settings, builder);
     }
     return builder.build();
   }
-  addEventsToBuilder(tasks, settings, builder) {
+  getProjection(tasks, settings) {
+    const projection = this.getTaskBuckets(tasks, settings);
+    return {
+      exportedTaskCount: projection.exportableTasks.length,
+      eventCount: projection.eventCount,
+      todoCount: projection.todoCount,
+      todoReasons: projection.todoReasons
+    };
+  }
+  addEventsToBuilder(tasks, settings, builder, timezone) {
     tasks.forEach((task) => {
-      this.addEventToBuilder(task, null, "", settings, builder);
+      this.addEventToBuilder(task, null, "", settings, builder, timezone);
     });
   }
-  addEventToBuilder(task, dateStr, prependSummary, settings, builder) {
-    if (task.hasAnyDate() === false) {
-      return;
-    }
+  addEventToBuilder(task, dateStr, prependSummary, settings, builder, timezone) {
     if (dateStr === null) {
       switch (settings.howToProcessMultipleDates) {
         case "PreferStartDate":
-          this.processSingleEvent(task, task.hasA("Start") ? "Start" : "Due", prependSummary, settings, builder);
+          this.processSingleEvent(task, task.hasA("Start") ? "Start" : "Due", prependSummary, settings, builder, timezone);
           break;
         case "CreateMultipleEvents":
-          if (task.hasA("Start"))
-            this.processSingleEvent(task, "Start", "\u{1F6EB} ", settings, builder);
-          if (task.hasA("Scheduled"))
-            this.processSingleEvent(task, "Scheduled", "\u23F3 ", settings, builder);
-          if (task.hasA("Due"))
-            this.processSingleEvent(task, "Due", "\u{1F4C5} ", settings, builder);
+          if (task.hasA("Start")) this.processSingleEvent(task, "Start", "\u{1F6EB} ", settings, builder, timezone);
+          if (task.hasA("Scheduled")) this.processSingleEvent(task, "Scheduled", "\u23F3 ", settings, builder, timezone);
+          if (task.hasA("Due")) this.processSingleEvent(task, "Due", "\u{1F4C5} ", settings, builder, timezone);
           break;
         default:
-          this.processSingleEvent(task, task.hasA("Due") ? "Due" : "Start", prependSummary, settings, builder);
+          this.processSingleEvent(task, task.hasA("Due") ? "Due" : "Start", prependSummary, settings, builder, timezone);
           break;
       }
     } else {
-      this.renderEvent(task, dateStr, true, prependSummary, settings, builder);
+      this.renderEvent(task, dateStr, true, prependSummary, settings, builder, timezone);
     }
   }
-  processSingleEvent(task, dateName, prepend, settings, builder) {
+  processSingleEvent(task, dateName, prepend, settings, builder, timezone) {
     const rawDate = task.getRawDate(dateName);
-    if (!rawDate)
-      return;
+    if (!rawDate) return;
     const hasTime = rawDate.getHours() !== 0 || rawDate.getMinutes() !== 0;
     const format = hasTime ? "YYYYMMDD[T]HHmmss" : "YYYYMMDD";
     const dateStr = task.getDate(dateName, format);
-    this.renderEvent(task, dateStr, hasTime, prepend, settings, builder);
+    this.renderEvent(task, dateStr, hasTime, prepend, settings, builder, timezone);
   }
-  renderEvent(task, dateValue, hasTime, prepend, settings, builder) {
+  renderEvent(task, dateValue, hasTime, prepend, settings, builder, timezone) {
+    var _a;
     builder.beginEvent();
     builder.addEventProperty("UID", task.getId(), false);
-    builder.addEventProperty("DTSTAMP", task.getDate(null, "YYYYMMDDTHHmmss"), false);
-    const dateKey = hasTime ? "DTSTART" : "DTSTART;VALUE=DATE";
+    builder.addEventProperty("DTSTAMP", this.getUtcTimestamp(), false);
+    const dateKey = hasTime ? `DTSTART;TZID=${timezone}` : "DTSTART;VALUE=DATE";
     builder.addEventProperty(dateKey, dateValue, false);
-    if (hasTime) {
+    builder.addEventProperty("SUMMARY", this.getSummary(task, prepend));
+    if (task.getPriority() !== null) builder.addEventProperty("PRIORITY", String(task.getPriority()), false);
+    if (task.getRecurrenceRule()) builder.addEventProperty("RRULE", task.getRecurrenceRule(), false);
+    if (task.getCategories().length > 0) builder.addEventProperty("CATEGORIES", task.getCategories().join(","), false);
+    if (task.status === "Cancelled" /* Cancelled */) builder.addEventProperty("STATUS", "CANCELLED", false);
+    const description = this.getDescription(task, settings);
+    if (description) builder.addEventProperty("DESCRIPTION", description);
+    if (this.shouldIncludeLocation(settings)) builder.addEventProperty("LOCATION", task.getLocation());
+    if (hasTime && task.getDurationMinutes()) {
+      const endDate = this.addMinutes((_a = task.getRawDate("Due")) != null ? _a : task.getRawDate("Start"), task.getDurationMinutes());
+      if (endDate) builder.addEventProperty(`DTEND;TZID=${timezone}`, this.formatDateTime(endDate), false);
     }
-    builder.addEventProperty("SUMMARY", prepend + task.getSummary());
-    const body = task.getBody();
-    if (body)
-      builder.addEventProperty("DESCRIPTION", body);
-    builder.addEventProperty("LOCATION", task.getLocation());
     if (settings.enableAlarms && task.alarmOffset !== null) {
-      builder.addAlarm(task.alarmOffset, task.summary);
+      builder.addAlarm(task.alarmOffset, this.getSummary(task));
     }
     builder.endEvent();
   }
   addToDosToBuilder(tasks, settings, builder) {
     tasks.forEach((task) => {
-      if (settings.isOnlyTasksWithoutDatesAreTodos && task.hasAnyDate())
-        return;
       builder.beginToDo();
       builder.addEventProperty("UID", task.getId(), false);
-      builder.addEventProperty("SUMMARY", task.getSummary());
+      builder.addEventProperty("SUMMARY", this.getSummary(task));
+      if (task.getPriority() !== null) builder.addEventProperty("PRIORITY", String(task.getPriority()), false);
+      if (task.getRecurrenceRule()) builder.addEventProperty("RRULE", task.getRecurrenceRule(), false);
+      if (task.getCategories().length > 0) builder.addEventProperty("CATEGORIES", task.getCategories().join(","), false);
+      const status = this.getTodoStatus(task);
+      if (status) builder.addEventProperty("STATUS", status, false);
       if (task.hasAnyDate()) {
-        builder.addEventProperty("DTSTAMP", task.getDate(null, "YYYYMMDDTHHmmss"), false);
+        builder.addEventProperty("DTSTAMP", this.getUtcTimestamp(), false);
+        if (task.hasA("Due")) {
+          const hasTime = task.hasTimedDate();
+          const format = hasTime ? "YYYYMMDD[T]HHmmss" : "YYYYMMDD";
+          const dateValue = task.getDate("Due", format);
+          const dateKey = hasTime ? "DUE" : "DUE;VALUE=DATE";
+          builder.addEventProperty(dateKey, dateValue, false);
+        }
       }
-      const body = task.getBody();
-      if (body)
-        builder.addEventProperty("DESCRIPTION", body);
-      builder.addEventProperty("LOCATION", task.getLocation());
-      if (task.hasA("Due")) {
-        builder.addEventProperty("DUE;VALUE=DATE", task.getDate("Due", "YYYYMMDD"), false);
+      if (task.status === "Done" /* Done */ && task.getCompletedAt()) {
+        builder.addEventProperty("COMPLETED", this.formatUtcDateTime(task.getCompletedAt()), false);
       }
+      const description = this.getDescription(task, settings);
+      if (description) builder.addEventProperty("DESCRIPTION", description);
+      if (this.shouldIncludeLocation(settings)) builder.addEventProperty("LOCATION", task.getLocation());
       builder.endToDo();
     });
   }
-};
-
-// src/FileClient.ts
-var import_obsidian2 = require("obsidian");
-
-// src/Logger.ts
-var import_obsidian = require("obsidian");
-var Logger = class {
-  constructor(isDebug) {
-    this.isDebug = isDebug;
+  getSummary(task, prepend = "") {
+    return this.cleanSummary(`${prepend}${task.getSummary()}`);
   }
-  static getInstance(isDebug) {
-    if (!Logger.instance) {
-      Logger.instance = new Logger(isDebug != null ? isDebug : false);
-    } else if (isDebug !== void 0) {
-      Logger.instance.isDebug = isDebug;
+  getDescription(task, settings) {
+    const parts = [];
+    const body = this.cleanDescription(task.getBody());
+    if (body) {
+      parts.push(body);
     }
-    return Logger.instance;
+    if (settings.linkPlacement === "Description" || settings.linkPlacement === "Both") {
+      parts.push(task.getLocation());
+    }
+    return parts.join("\n");
   }
-  log(message, object) {
-    if (this.isDebug) {
-      console.log("[" + (0, import_obsidian.moment)().format("YYYY-MM-DD-HH:mm:ss.SSS") + "][info][ical] " + message);
-      if (object) {
-        console.log(object);
+  shouldIncludeLocation(settings) {
+    return settings.linkPlacement === "Location" || settings.linkPlacement === "Both";
+  }
+  cleanSummary(value) {
+    if (!value) return "";
+    return this.cleanInlineText(value).replace(/\([^()]*\b[a-zA-Z][\w-]*::[^()]*\)/g, "").replace(/(^|\s)#[^\s#]+/g, "$1").replace(/\s+/g, " ").trim();
+  }
+  cleanDescription(value) {
+    if (!value) return "";
+    return value.replace(/\r/g, "").split("\n").map((line) => this.cleanDescriptionLine(line)).filter((line) => line.length > 0).join("\n").trim();
+  }
+  cleanDescriptionLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const withoutBullet = trimmed.replace(/^[-*+]\s+/, "");
+    if (/^\[?[a-zA-Z][\w-]*::.*\]?$/.test(withoutBullet)) {
+      return "";
+    }
+    return this.cleanInlineText(trimmed).replace(/\([^()]*\b[a-zA-Z][\w-]*::[^()]*\)/g, "").replace(/(^|\s)#[^\s#]+/g, "$1").replace(/\s+/g, " ").trim();
+  }
+  cleanInlineText(value) {
+    return value.replace(/<!--[\s\S]*?-->/g, "").replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2").replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1").replace(/`([^`]+)`/g, "$1");
+  }
+  hasExportableSummary(task) {
+    return this.stripHiddenOnly(task.getSummary()).trim().length > 0;
+  }
+  getTaskBuckets(tasks, settings) {
+    const exportableTasks = tasks.filter((task) => this.hasExportableSummary(task));
+    const datedTasks = exportableTasks.filter((task) => task.hasAnyDate());
+    const timedTasks = datedTasks.filter((task) => task.hasTimedDate());
+    const untimedTasks = datedTasks.filter((task) => !task.hasTimedDate());
+    const floatingTasks = exportableTasks.filter((task) => !task.hasAnyDate());
+    const includeEvents = settings.includeEventsOrTodos === "EventsAndTodos" || settings.includeEventsOrTodos === "EventsOnly";
+    const includeTodos = settings.includeEventsOrTodos === "EventsAndTodos" || settings.includeEventsOrTodos === "TodosOnly";
+    const eventCount = includeEvents ? settings.includeEventsOrTodos === "EventsAndTodos" ? timedTasks.length : datedTasks.length : 0;
+    const todoCount = includeTodos ? settings.includeEventsOrTodos === "EventsAndTodos" ? untimedTasks.length + floatingTasks.length : settings.isOnlyTasksWithoutDatesAreTodos ? floatingTasks.length : exportableTasks.length : 0;
+    const todoReasons = [];
+    if (includeTodos) {
+      if (settings.includeEventsOrTodos === "EventsAndTodos") {
+        if (untimedTasks.length > 0) {
+          todoReasons.push({
+            reason: "Task has a date but no time, so it is exported as VTODO",
+            count: untimedTasks.length
+          });
+        }
+        if (floatingTasks.length > 0) {
+          todoReasons.push({
+            reason: "Task has no date, so it stays as floating VTODO",
+            count: floatingTasks.length
+          });
+        }
+      } else if (settings.isOnlyTasksWithoutDatesAreTodos && floatingTasks.length > 0) {
+        todoReasons.push({
+          reason: "Task has no date, so it stays as floating VTODO",
+          count: floatingTasks.length
+        });
       }
     }
+    return {
+      exportableTasks,
+      datedTasks,
+      timedTasks,
+      untimedTasks,
+      floatingTasks,
+      eventCount,
+      todoCount,
+      todoReasons
+    };
   }
-};
-function logger(isDebug) {
-  return Logger.getInstance(isDebug);
-}
-function log(message, object) {
-  return Logger.getInstance().log(message, object);
-}
-
-// src/SettingsManager.ts
-var SettingsManager = class {
-  constructor(plugin) {
-    this.plugin = plugin;
+  getUtcTimestamp() {
+    return (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   }
-  static async createInstance(plugin) {
-    SettingsManager.instance = new SettingsManager(plugin);
-    await SettingsManager.instance.loadSettings();
-    return SettingsManager.instance;
+  stripHiddenOnly(value) {
+    return value.replace(/<!--[\s\S]*?-->/g, "");
   }
-  static get settingsManager() {
-    return SettingsManager.instance;
+  getTodoStatus(task) {
+    switch (task.status) {
+      case "InProgress" /* InProgress */:
+        return "IN-PROCESS";
+      case "Cancelled" /* Cancelled */:
+        return "CANCELLED";
+      case "Done" /* Done */:
+        return "COMPLETED";
+      case "Todo" /* Todo */:
+      case "Important" /* Important */:
+        return "NEEDS-ACTION";
+      default:
+        return null;
+    }
   }
-  async loadSettings() {
-    log("Load settings");
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.plugin.loadData());
-    await this.plugin.saveData(this.settings);
+  addMinutes(date, minutes) {
+    if (!date || !minutes) {
+      return null;
+    }
+    const nextDate = new Date(date);
+    nextDate.setMinutes(nextDate.getMinutes() + minutes);
+    return nextDate;
   }
-  async saveSettings() {
-    log("Save settings");
-    await this.plugin.saveData(this.settings);
+  formatDateTime(date) {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
+    const hours = `${date.getHours()}`.padStart(2, "0");
+    const minutes = `${date.getMinutes()}`.padStart(2, "0");
+    const seconds = `${date.getSeconds()}`.padStart(2, "0");
+    return `${year}${month}${day}T${hours}${minutes}${seconds}`;
   }
-  get githubPersonalAccessToken() {
-    return this.settings.githubPersonalAccessToken;
-  }
-  set githubPersonalAccessToken(value) {
-    this.settings.githubPersonalAccessToken = value;
-    this.saveSettings();
-  }
-  get githubGistId() {
-    return this.settings.githubGistId;
-  }
-  set githubGistId(value) {
-    this.settings.githubGistId = value;
-    this.saveSettings();
-  }
-  get githubUsername() {
-    return this.settings.githubUsername;
-  }
-  set githubUsername(value) {
-    this.settings.githubUsername = value;
-    this.saveSettings();
-  }
-  get filename() {
-    return this.settings.filename;
-  }
-  set filename(value) {
-    this.settings.filename = value;
-    this.saveSettings();
-  }
-  get isPeriodicSaveEnabled() {
-    return this.settings.isPeriodicSaveEnabled;
-  }
-  set isPeriodicSaveEnabled(value) {
-    this.settings.isPeriodicSaveEnabled = value;
-    this.saveSettings();
-  }
-  get periodicSaveInterval() {
-    return this.settings.periodicSaveInterval;
-  }
-  set periodicSaveInterval(value) {
-    this.settings.periodicSaveInterval = value;
-    this.saveSettings();
-  }
-  get isSaveToGistEnabled() {
-    return this.settings.isSaveToGistEnabled;
-  }
-  set isSaveToGistEnabled(value) {
-    this.settings.isSaveToGistEnabled = value;
-    this.saveSettings();
-  }
-  get isSaveToFileEnabled() {
-    return this.settings.isSaveToFileEnabled;
-  }
-  set isSaveToFileEnabled(value) {
-    this.settings.isSaveToFileEnabled = value;
-    this.saveSettings();
-  }
-  get savePath() {
-    return this.settings.savePath;
-  }
-  set savePath(value) {
-    this.settings.savePath = value;
-    this.saveSettings();
-  }
-  get saveFileName() {
-    return this.settings.saveFileName;
-  }
-  set saveFileName(value) {
-    this.settings.saveFileName = value;
-    this.saveSettings();
-  }
-  get saveFileExtension() {
-    return this.settings.saveFileExtension;
-  }
-  set saveFileExtension(value) {
-    this.settings.saveFileExtension = value;
-    this.saveSettings();
-  }
-  get howToParseInternalLinks() {
-    return this.settings.howToParseInternalLinks;
-  }
-  set howToParseInternalLinks(value) {
-    this.settings.howToParseInternalLinks = value;
-    this.saveSettings();
-  }
-  get ignoreCompletedTasks() {
-    return this.settings.ignoreCompletedTasks;
-  }
-  set ignoreCompletedTasks(value) {
-    this.settings.ignoreCompletedTasks = value;
-    this.saveSettings();
-  }
-  get isDebug() {
-    return this.settings.isDebug;
-  }
-  set isDebug(value) {
-    this.settings.isDebug = value;
-    this.saveSettings();
-  }
-  get ignoreOldTasks() {
-    return this.settings.ignoreOldTasks;
-  }
-  set ignoreOldTasks(value) {
-    this.settings.ignoreOldTasks = value;
-    this.saveSettings();
-  }
-  get oldTaskInDays() {
-    return this.settings.oldTaskInDays;
-  }
-  set oldTaskInDays(value) {
-    this.settings.oldTaskInDays = value;
-    this.saveSettings();
-  }
-  get howToProcessMultipleDates() {
-    return this.settings.howToProcessMultipleDates;
-  }
-  set howToProcessMultipleDates(value) {
-    this.settings.howToProcessMultipleDates = value;
-    this.saveSettings();
-  }
-  get includeEventsOrTodos() {
-    return this.settings.includeEventsOrTodos;
-  }
-  set includeEventsOrTodos(value) {
-    this.settings.includeEventsOrTodos = value;
-    this.saveSettings();
-  }
-  get isOnlyTasksWithoutDatesAreTodos() {
-    return this.settings.isOnlyTasksWithoutDatesAreTodos;
-  }
-  set isOnlyTasksWithoutDatesAreTodos(value) {
-    this.settings.isOnlyTasksWithoutDatesAreTodos = value;
-    this.saveSettings();
-  }
-  get isDayPlannerPluginFormatEnabled() {
-    return this.settings.isDayPlannerPluginFormatEnabled;
-  }
-  set isDayPlannerPluginFormatEnabled(value) {
-    this.settings.isDayPlannerPluginFormatEnabled = value;
-    this.saveSettings();
-  }
-  get isIncludeTasksWithTags() {
-    return this.settings.isIncludeTasksWithTags;
-  }
-  set isIncludeTasksWithTags(value) {
-    this.settings.isIncludeTasksWithTags = value;
-    this.saveSettings();
-  }
-  get includeTasksWithTags() {
-    return this.settings.includeTasksWithTags;
-  }
-  set includeTasksWithTags(value) {
-    this.settings.includeTasksWithTags = value;
-    this.saveSettings();
-  }
-  get isExcludeTasksWithTags() {
-    return this.settings.isExcludeTasksWithTags;
-  }
-  set isExcludeTasksWithTags(value) {
-    this.settings.isExcludeTasksWithTags = value;
-    this.saveSettings();
-  }
-  get excludeTasksWithTags() {
-    return this.settings.excludeTasksWithTags;
-  }
-  set excludeTasksWithTags(value) {
-    this.settings.excludeTasksWithTags = value;
-    this.saveSettings();
-  }
-  get rootPath() {
-    return this.settings.rootPath;
-  }
-  set rootPath(value) {
-    this.settings.rootPath = value;
-    this.saveSettings();
-  }
-  get isIncludeLinkInDescription() {
-    return this.settings.isIncludeLinkInDescription;
-  }
-  set isIncludeLinkInDescription(value) {
-    this.settings.isIncludeLinkInDescription = value;
-    this.saveSettings();
-  }
-  get secretKey() {
-    return this.settings.secretKey;
-  }
-  set secretKey(value) {
-    this.settings.secretKey = value;
-    this.saveSettings();
-  }
-  get isSaveToWebEnabled() {
-    return this.settings.isSaveToWebEnabled;
-  }
-  set isSaveToWebEnabled(value) {
-    this.settings.isSaveToWebEnabled = value;
-    this.saveSettings();
+  formatUtcDateTime(date) {
+    return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   }
 };
 
-// src/FileClient.ts
-var FileClient = class {
+// src/Model/Task.ts
+var Task = class {
+  constructor(status, dates, summary, fileUri, sourceKey, body = "", alarmOffset = null, priority = null, recurrenceRule = null, categories = [], completedAt = null, durationMinutes = null) {
+    __publicField(this, "status");
+    __publicField(this, "dates");
+    __publicField(this, "summary");
+    __publicField(this, "fileUri");
+    __publicField(this, "sourceKey");
+    __publicField(this, "body");
+    __publicField(this, "alarmOffset");
+    // minutes, null means no alarm
+    __publicField(this, "priority");
+    __publicField(this, "recurrenceRule");
+    __publicField(this, "categories");
+    __publicField(this, "completedAt");
+    __publicField(this, "durationMinutes");
+    __publicField(this, "stableId", null);
+    this.status = status;
+    this.dates = dates;
+    this.summary = summary;
+    this.fileUri = fileUri;
+    this.sourceKey = sourceKey;
+    this.body = body;
+    this.alarmOffset = alarmOffset;
+    this.priority = priority;
+    this.recurrenceRule = recurrenceRule;
+    this.categories = categories;
+    this.completedAt = completedAt;
+    this.durationMinutes = durationMinutes;
+  }
+  getId() {
+    if (this.stableId) {
+      return this.stableId;
+    }
+    const source = this.sourceKey || `${this.fileUri}:${this.summary}`;
+    let hash = 0;
+    for (let i = 0; i < source.length; i++) {
+      const char = source.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return `obsidian-ical-${Math.abs(hash)}`;
+  }
+  setStableId(stableId) {
+    this.stableId = stableId;
+  }
+  hasA(taskDateName) {
+    return this.dates.some((taskDate) => {
+      return taskDate.name === taskDateName;
+    });
+  }
+  hasAnyDate() {
+    return this.dates.length > 0;
+  }
+  hasTimedDate() {
+    return this.dates.some((taskDate) => {
+      const date = taskDate.date;
+      return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
+    });
+  }
+  getDate(taskDateName, format) {
+    if (this.dates.length === 0) {
+      return "";
+    }
+    if (taskDateName === null) {
+      taskDateName = this.dates[0].name;
+    }
+    const matchingTaskDate = this.dates.find((taskDate) => {
+      if (taskDate.name === taskDateName) {
+        return taskDate.date;
+      }
+    });
+    if (typeof matchingTaskDate === "undefined") {
+      return "";
+    }
+    return formatTaskDate(matchingTaskDate.date, format);
+  }
+  getRawDate(taskDateName) {
+    if (this.dates.length === 0) return null;
+    if (taskDateName === null) taskDateName = this.dates[0].name;
+    const matching = this.dates.find((d) => d.name === taskDateName);
+    return matching ? matching.date : null;
+  }
+  getSummary() {
+    return this.summary;
+  }
+  getBody() {
+    return this.body;
+  }
+  getLocation() {
+    return this.fileUri;
+  }
+  getPriority() {
+    return this.priority;
+  }
+  getRecurrenceRule() {
+    return this.recurrenceRule;
+  }
+  getCategories() {
+    return this.categories;
+  }
+  setCategories(categories) {
+    this.categories = [.../* @__PURE__ */ new Set([...this.categories, ...categories])];
+  }
+  getCompletedAt() {
+    return this.completedAt;
+  }
+  getDurationMinutes() {
+    return this.durationMinutes;
+  }
+};
+function formatTaskDate(date, format) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+  const seconds = `${date.getSeconds()}`.padStart(2, "0");
+  switch (format) {
+    case "YYYYMMDD":
+      return `${year}${month}${day}`;
+    case "YYYYMMDDTHHmmss":
+    case "YYYYMMDD[T]HHmmss":
+      return `${year}${month}${day}T${hours}${minutes}${seconds}`;
+    default:
+      return `${year}${month}${day}`;
+  }
+}
+
+// src/Service/TaskFactory.ts
+function createTaskFromLine(line, fileUri, sourceKey, dateOverride, body, settings) {
+  var _a, _b;
+  line = line.replace(/^\s*(?:>\s*)+/, "");
+  const taskRegex = /^(\s*[*+-]\s*\[)(.)(\]\s*)(.*)$/;
+  const match = line.match(taskRegex);
+  if (!match) return null;
+  const statusChar = match[2];
+  const status = parseStatus(statusChar);
+  if (status === "Done" /* Done */ && settings.ignoreCompletedTasks) {
+    return null;
+  }
+  let summary = match[4].trim();
+  const categories = collectCategories(`${summary}
+${body}`);
+  let priority = parsePriority(summary, status);
+  summary = priority.summary;
+  let recurrence = parseRecurrenceRule(summary);
+  summary = recurrence.summary;
+  const recurrenceRule = recurrence.rrule;
+  let alarmOffset = null;
+  const alarmRegex = /⏰\s*(\d+)?/;
+  const alarmMatch = summary.match(alarmRegex);
+  if (alarmMatch) {
+    alarmOffset = alarmMatch[1] ? parseInt(alarmMatch[1]) : settings.defaultAlarmOffset;
+    summary = summary.replace(alarmMatch[0], "").trim();
+  }
+  summary = summary.replace(/\*\*|__/g, "").replace(/\*|_/g, "");
+  summary = parseInternalLinks(summary, settings.howToParseInternalLinks);
+  const parsedTime = parseTimeToken(summary);
+  const dates = [];
+  let completedAtOverride = null;
+  const datePatterns = [
+    { name: "Due", emoji: "\u{1F4C5}" },
+    { name: "Scheduled", emoji: "\u23F3" },
+    { name: "Start", emoji: "\u{1F6EB}" },
+    { name: "Completion", emoji: "\u2705" }
+  ];
+  for (const pattern of datePatterns) {
+    const regex = new RegExp(`${pattern.emoji}\\s*(\\d{4}-\\d{2}-\\d{2})`, "u");
+    const dateMatch = summary.match(regex);
+    if (dateMatch) {
+      const date = applyParsedTime(parseIsoDate(dateMatch[1]), parsedTime);
+      dates.push({ name: pattern.name, date });
+      if (pattern.name === "Completion") {
+        completedAtOverride = parseUtcDate(dateMatch[1]);
+      }
+      summary = summary.replace(dateMatch[0], "").trim();
+    }
+  }
+  if (dateOverride && !dates.some((taskDate) => taskDate.name === "Due" || taskDate.name === "Start" || taskDate.name === "Scheduled")) {
+    dates.push({ name: "Due", date: applyParsedTime(dateOverride, parsedTime) });
+  }
+  if (dates.length === 0) {
+    const genericDateMatch = summary.match(/(\d{4}-\d{2}-\d{2})/);
+    if (genericDateMatch) {
+      const date = applyParsedTime(parseIsoDate(genericDateMatch[1]), parsedTime);
+      dates.push({ name: "Due", date });
+      summary = summary.replace(genericDateMatch[0], "").trim();
+    }
+  }
+  if (parsedTime && dates.length > 0) {
+    const rangeRegex = new RegExp(`${escapeRegExp(parsedTime.token)}\\s*-\\s*\\d{1,2}:\\d{2}\\b`, "i");
+    const rangeMatch = summary.match(rangeRegex);
+    if (rangeMatch) {
+      summary = summary.replace(rangeMatch[0], "").trim();
+    } else {
+      summary = summary.replace(parsedTime.token, "").trim();
+    }
+    summary = summary.replace(/\s{2,}/g, " ").trim();
+  }
+  summary = summary.replace(/(^|\s)#[^\s#]+/g, "$1").replace(/\s{2,}/g, " ").trim();
+  if (settings.ignoreOldTasks && dates.length > 0) {
+    const now = /* @__PURE__ */ new Date();
+    const thresholdDate = new Date(now.setDate(now.getDate() - settings.oldTaskInDays));
+    const isOld = dates.every((d) => d.date < thresholdDate);
+    if (isOld) return null;
+  }
+  const completedAt = status === "Done" /* Done */ ? (_b = completedAtOverride != null ? completedAtOverride : normalizeCompletedAt((_a = dates.find((taskDate) => taskDate.name === "Completion")) == null ? void 0 : _a.date)) != null ? _b : /* @__PURE__ */ new Date() : null;
+  const durationMinutes = (parsedTime == null ? void 0 : parsedTime.endHours) !== void 0 && parsedTime.endMinutes !== void 0 ? (parsedTime.endHours * 60 + parsedTime.endMinutes - (parsedTime.hours * 60 + parsedTime.minutes) + 24 * 60) % (24 * 60) || null : null;
+  return new Task(status, dates, summary, fileUri, sourceKey, body, alarmOffset, priority.value, recurrenceRule, categories, completedAt, durationMinutes);
+}
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function parseInternalLinks(summary, mode) {
+  switch (mode) {
+    case "RemoveThem":
+      return summary.replace(/\[\[.*?\]\]/g, "").replace(/\[.*?\]\(.*?\)/g, "").trim();
+    case "KeepTitle":
+    case "PreferTitle":
+      summary = summary.replace(/\[\[.*?\|(.*?)\]\]/g, "$1");
+      summary = summary.replace(/\[\[(.*?)\]\]/g, "$1");
+      summary = summary.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+      return summary.trim();
+    case "DoNotModifyThem":
+    default:
+      return summary;
+  }
+}
+function parseStatus(statusChar) {
+  switch (statusChar) {
+    case "x":
+    case "X":
+      return "Done" /* Done */;
+    case "/":
+      return "InProgress" /* InProgress */;
+    case "-":
+      return "Cancelled" /* Cancelled */;
+    case "!":
+      return "Important" /* Important */;
+    default:
+      return "Todo" /* Todo */;
+  }
+}
+function parsePriority(summary, status) {
+  if (summary.includes("\u23EB")) {
+    return { summary: summary.replace(/⏫/g, "").trim(), value: 1 };
+  }
+  if (summary.includes("\u{1F53C}")) {
+    return { summary: summary.replace(/🔼/g, "").trim(), value: 5 };
+  }
+  if (summary.includes("\u{1F53D}")) {
+    return { summary: summary.replace(/🔽/g, "").trim(), value: 9 };
+  }
+  if (status === "Important" /* Important */) {
+    return { summary, value: 1 };
+  }
+  return { summary, value: null };
+}
+function parseRecurrenceRule(summary) {
+  const rules = [
+    { regex: /\bevery weekday\b/i, build: () => "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
+    { regex: /\bevery weekend\b/i, build: () => "FREQ=WEEKLY;BYDAY=SA,SU" },
+    {
+      regex: /\bevery\s+(\d+)\s+weeks?\s+on\s+([a-z,\sand]+)\b/i,
+      build: (match) => `FREQ=WEEKLY;INTERVAL=${match[1]};BYDAY=${parseByDayList(match[2])}`
+    },
+    {
+      regex: /\bevery\s+week\s+on\s+([a-z,\sand]+)\b/i,
+      build: (match) => `FREQ=WEEKLY;BYDAY=${parseByDayList(match[1])}`
+    },
+    { regex: /\bevery\s+(\d+)\s+days?\b/i, build: (match) => `FREQ=DAILY;INTERVAL=${match[1]}` },
+    { regex: /\bevery day\b/i, build: () => "FREQ=DAILY" },
+    { regex: /\bevery\s+(\d+)\s+weeks?\b/i, build: (match) => `FREQ=WEEKLY;INTERVAL=${match[1]}` },
+    { regex: /\bevery week\b/i, build: () => "FREQ=WEEKLY" },
+    { regex: /\bevery\s+(\d+)\s+months?\b/i, build: (match) => `FREQ=MONTHLY;INTERVAL=${match[1]}` },
+    { regex: /\bevery month\b/i, build: () => "FREQ=MONTHLY" },
+    { regex: /\bevery\s+(\d+)\s+years?\b/i, build: (match) => `FREQ=YEARLY;INTERVAL=${match[1]}` },
+    { regex: /\bevery year\b/i, build: () => "FREQ=YEARLY" }
+  ];
+  for (const rule of rules) {
+    const match = summary.match(rule.regex);
+    if (match) {
+      return {
+        summary: summary.replace(rule.regex, "").replace(/\s{2,}/g, " ").trim(),
+        rrule: rule.build(match)
+      };
+    }
+  }
+  return { summary, rrule: null };
+}
+function parseByDayList(value) {
+  return value.split(/\s*(?:,|and)\s*/i).map((item) => item.trim()).filter((item) => item.length > 0).map((item) => weekdayToByDay(item)).filter((item, index, values) => values.indexOf(item) === index).join(",");
+}
+function weekdayToByDay(value) {
+  switch (value.toLowerCase()) {
+    case "monday":
+      return "MO";
+    case "tuesday":
+      return "TU";
+    case "wednesday":
+      return "WE";
+    case "thursday":
+      return "TH";
+    case "friday":
+      return "FR";
+    case "saturday":
+      return "SA";
+    case "sunday":
+      return "SU";
+    default:
+      return "MO";
+  }
+}
+function collectCategories(value) {
+  const categories = /* @__PURE__ */ new Set();
+  for (const match of value.matchAll(/(^|\s)#([^\s#.,!?;:]+)/g)) {
+    if (match[2]) {
+      categories.add(match[2]);
+    }
+  }
+  return [...categories];
+}
+function parseTimeToken(summary) {
+  const timeRangeMatch = summary.match(/\b(\d{1,2})(?::(\d{2}))?\s*([ap]m)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*([ap]m)?\b/i);
+  if (timeRangeMatch) {
+    const start = normalizeTimeParts(timeRangeMatch[1], timeRangeMatch[2], timeRangeMatch[3]);
+    const end = normalizeTimeParts(timeRangeMatch[4], timeRangeMatch[5], timeRangeMatch[6]);
+    if (!start || !end) return null;
+    return {
+      hours: start.hours,
+      minutes: start.minutes,
+      token: timeRangeMatch[0],
+      endHours: end.hours,
+      endMinutes: end.minutes
+    };
+  }
+  const timeMatch = summary.match(/\b(\d{1,2})(?::(\d{2}))\s*([ap]m)?\b|\b(\d{1,2})\s*([ap]m)\b/i);
+  if (!timeMatch) return null;
+  const normalized = normalizeTimeParts(timeMatch[1] || timeMatch[4], timeMatch[2], timeMatch[3] || timeMatch[5]);
+  if (!normalized) return null;
+  return {
+    hours: normalized.hours,
+    minutes: normalized.minutes,
+    token: timeMatch[0]
+  };
+}
+function normalizeTimeParts(rawHoursValue, rawMinutesValue, rawMeridiemValue) {
+  const rawHours = parseInt(rawHoursValue, 10);
+  const minutes = rawMinutesValue ? parseInt(rawMinutesValue, 10) : 0;
+  const meridiem = rawMeridiemValue == null ? void 0 : rawMeridiemValue.toLowerCase();
+  if (Number.isNaN(rawHours) || Number.isNaN(minutes)) return null;
+  if (!meridiem && rawHours > 23) return null;
+  if (minutes > 59) return null;
+  let hours = rawHours;
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null;
+    if (meridiem === "pm" && hours !== 12) hours += 12;
+    if (meridiem === "am" && hours === 12) hours = 0;
+  }
+  return { hours, minutes };
+}
+function applyParsedTime(baseDate, parsedTime) {
+  if (!parsedTime) return baseDate;
+  const nextDate = new Date(baseDate);
+  nextDate.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
+  return nextDate;
+}
+function parseIsoDate(value) {
+  return /* @__PURE__ */ new Date(`${value}T00:00:00`);
+}
+function parseUtcDate(value) {
+  const [year, month, day] = value.split("-").map((part) => parseInt(part, 10));
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+}
+function normalizeCompletedAt(date) {
+  if (!date) {
+    return null;
+  }
+  return new Date(Date.UTC(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds()
+  ));
+}
+
+// src/Service/TaskFinder.ts
+var TaskFinder = class {
   constructor(vault) {
+    __publicField(this, "vault");
     this.vault = vault;
   }
-  async save(calendar) {
-    const settings = SettingsManager.settingsManager.settings;
-    const fileRelativePath = `${settings.savePath ? settings.savePath + "/" : ""}${settings.saveFileName}${settings.saveFileExtension}`;
-    const file = this.vault.getAbstractFileByPath(fileRelativePath);
-    if (file instanceof import_obsidian2.TFile) {
-      log("File exists: updating");
-      await this.vault.modify(file, calendar);
-    } else {
-      log("File does not exist: creating");
-      await this.vault.create(fileRelativePath, calendar);
-    }
-  }
-};
-
-// src/GistClient.ts
-var import_obsidian3 = require("obsidian");
-var GistClient = class {
-  constructor(settings) {
-    this.settings = settings;
-  }
-  async save(calendarContent) {
-    const { githubPersonalAccessToken, githubGistId, filename, isDebug } = this.settings;
-    if (!githubPersonalAccessToken || !githubGistId) {
-      if (isDebug)
-        console.log("iCal Pro: Gist sync skipped - missing Token or Gist ID.");
-      return false;
-    }
-    const fname = filename || "obsidian.ics";
-    if (isDebug) {
-      console.log("iCal Pro: Starting Gist Sync...");
-      console.log(`iCal Pro: Target Gist ID: ${githubGistId}`);
-      console.log(`iCal Pro: Target Filename: ${fname}`);
-      console.log(`iCal Pro: Content Length: ${calendarContent.length} chars`);
-    }
-    try {
-      const response = await (0, import_obsidian3.requestUrl)({
-        url: `https://api.github.com/gists/${githubGistId}`,
-        method: "PATCH",
-        headers: {
-          "Authorization": `Bearer ${githubPersonalAccessToken}`,
-          "Accept": "application/vnd.github.v3+json",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          files: {
-            [fname]: {
-              content: calendarContent
-            }
-          }
-        })
-      });
-      if (response.status === 200) {
-        if (isDebug)
-          console.log("iCal Pro: Gist updated successfully!");
-        return true;
-      } else {
-        const errorMsg = `GitHub API Error ${response.status}: ${response.text}`;
-        console.error("iCal Pro: Gist Update Failed.", errorMsg);
-        throw new Error(errorMsg);
+  async findTasks(file, listItemsCache, headings, settings) {
+    const fileCachedContent = await this.vault.cachedRead(file);
+    const lines = fileCachedContent.split("\n");
+    const fileUri = `obsidian://open?vault=${encodeURIComponent(file.vault.getName())}&file=${encodeURIComponent(file.path)}`;
+    const fileDate = this.getDateFromFileName(file);
+    const isTaskLine = (line) => /(\*|-)\s*\[.?]\s*/.test(this.normalizeTaskLine(line));
+    const taskPositions = listItemsCache.map((item) => item.position.start.line).filter((lineNo) => isTaskLine(lines[lineNo]));
+    const results = [];
+    for (let i = 0; i < taskPositions.length; i++) {
+      const startLine = taskPositions[i];
+      const markdownLine = lines[startLine];
+      const normalizedTaskLine = this.normalizeTaskLine(markdownLine);
+      const nextTaskLine = i + 1 < taskPositions.length ? taskPositions[i + 1] : lines.length;
+      const body = this.extractBody(lines, startLine, nextTaskLine);
+      const dateOverride = this.resolveDateOverride(normalizedTaskLine, startLine, headings, settings, fileDate);
+      const sourceKey = `${file.path}:${startLine}:${normalizedTaskLine.trim()}`;
+      const task = createTaskFromLine(normalizedTaskLine, fileUri, sourceKey, dateOverride, body, settings);
+      if (task) {
+        results.push(task);
       }
-    } catch (error) {
-      if (error.status === 404) {
-        throw new Error(`Gist not found. Check your Gist ID and ensure file '${fname}' exists in it.`);
-      }
-      throw error;
     }
+    return results;
+  }
+  resolveDateOverride(line, lineNumber, headings, settings, fileDate) {
+    if (this.lineHasExplicitDate(line)) {
+      return null;
+    }
+    if (settings.isDayPlannerPluginFormatEnabled && headings) {
+      const headingDate = headings.resolveDateForLine(lineNumber);
+      if (headingDate) {
+        return headingDate;
+      }
+    }
+    return fileDate;
+  }
+  lineHasExplicitDate(line) {
+    return /[📅⏳🛫✅]\s*\d{4}-\d{2}-\d{2}|\b\d{4}-\d{2}-\d{2}\b/u.test(line);
+  }
+  extractBody(lines, startLine, nextTaskLine) {
+    const bodyLines = [];
+    for (let lineIndex = startLine + 1; lineIndex < nextTaskLine; lineIndex++) {
+      const currentLine = lines[lineIndex];
+      const trimmed = currentLine.trim();
+      if (trimmed === "" && lineIndex > startLine + 1) {
+        break;
+      }
+      if (trimmed === "") {
+        continue;
+      }
+      if (trimmed.startsWith(">") || trimmed.startsWith("-") || trimmed.startsWith("*") || /^\s+/.test(currentLine)) {
+        bodyLines.push(trimmed);
+        continue;
+      }
+      break;
+    }
+    return bodyLines.join("\n");
+  }
+  getDateFromFileName(file) {
+    var _a, _b;
+    const fileWithBaseName = file;
+    const fileName = fileWithBaseName.basename ? String(fileWithBaseName.basename) : (_b = (_a = file.path.split("/").pop()) == null ? void 0 : _a.replace(/\.md$/i, "")) != null ? _b : "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(fileName) ? /* @__PURE__ */ new Date(`${fileName}T00:00:00`) : null;
+  }
+  normalizeTaskLine(line) {
+    return line.replace(/^\s*(?:>\s*)+/, "");
   }
 };
 
 // src/Service/TaskIndex.ts
 var TaskIndex = class {
   constructor() {
-    this.fileTasks = /* @__PURE__ */ new Map();
+    __publicField(this, "fileTasks", /* @__PURE__ */ new Map());
   }
   setTasks(path, tasks) {
     if (tasks.length === 0) {
@@ -603,226 +1618,24 @@ var TaskIndex = class {
   }
 };
 
-// src/Service/TaskFactory.ts
-var import_obsidian5 = require("obsidian");
-
-// src/Model/Task.ts
-var import_obsidian4 = require("obsidian");
-var Task = class {
-  constructor(status, dates, summary, fileUri, body = "", alarmOffset = null) {
-    this.status = status;
-    this.dates = dates;
-    this.summary = summary;
-    this.fileUri = fileUri;
-    this.body = body;
-    this.alarmOffset = alarmOffset;
-  }
-  getId() {
-    return crypto.randomUUID();
-  }
-  hasA(taskDateName) {
-    return this.dates.some((taskDate) => {
-      return taskDate.name === taskDateName;
-    });
-  }
-  hasAnyDate() {
-    return this.dates.length > 0;
-  }
-  getDate(taskDateName, format) {
-    if (this.dates.length === 0) {
-      return "";
-    }
-    if (taskDateName === null) {
-      taskDateName = this.dates[0].name;
-    }
-    const matchingTaskDate = this.dates.find((taskDate) => {
-      if (taskDate.name === taskDateName) {
-        return taskDate.date;
-      }
-    });
-    if (typeof matchingTaskDate === "undefined") {
-      return "";
-    }
-    return (0, import_obsidian4.moment)(matchingTaskDate.date).format(format);
-  }
-  getRawDate(taskDateName) {
-    if (this.dates.length === 0)
-      return null;
-    if (taskDateName === null)
-      taskDateName = this.dates[0].name;
-    const matching = this.dates.find((d) => d.name === taskDateName);
-    return matching ? matching.date : null;
-  }
-  getSummary() {
-    const summary = this.summary.replace(/\\/gm, "\\\\").replace(/\r?\n/gm, "\\n").replace(/;/gm, "\\;").replace(/,/gm, "\\,");
-    return summary;
-  }
-  getBody() {
-    return this.body.replace(/\\/gm, "\\\\").replace(/\r?\n/gm, "\\n").replace(/;/gm, "\\;").replace(/,/gm, "\\,");
-  }
-  getLocation() {
-    return this.fileUri;
-  }
-};
-
-// src/Service/TaskFactory.ts
-function createTaskFromLine(line, fileUri, dateOverride, body, settings) {
-  const taskRegex = /^(\s*[*+-]\s*\[)(.)(\]\s*)(.*)$/;
-  const match = line.match(taskRegex);
-  if (!match)
-    return null;
-  const statusChar = match[2];
-  const status = statusChar === "x" || statusChar === "X" ? "Done" /* Done */ : "Todo" /* Todo */;
-  if (status === "Done" /* Done */ && settings.ignoreCompletedTasks) {
-    return null;
-  }
-  let summary = match[4].trim();
-  let alarmOffset = null;
-  const alarmRegex = /⏰\s*(\d+)?/;
-  const alarmMatch = summary.match(alarmRegex);
-  if (alarmMatch) {
-    alarmOffset = alarmMatch[1] ? parseInt(alarmMatch[1]) : settings.defaultAlarmOffset;
-    summary = summary.replace(alarmMatch[0], "").trim();
-  }
-  summary = summary.replace(/\*\*|__/g, "").replace(/\*|_/g, "");
-  summary = parseInternalLinks(summary, settings.howToParseInternalLinks);
-  const dates = [];
-  const datePatterns = [
-    { name: "Due", emoji: "\u{1F4C5}" },
-    { name: "Scheduled", emoji: "\u23F3" },
-    { name: "Start", emoji: "\u{1F6EB}" },
-    { name: "Completion", emoji: "\u2705" }
-  ];
-  for (const pattern of datePatterns) {
-    const regex = new RegExp(`${pattern.emoji}\\s*(\\d{4}-\\d{2}-\\d{2})`, "u");
-    const dateMatch = summary.match(regex);
-    if (dateMatch) {
-      const date = (0, import_obsidian5.moment)(dateMatch[1], "YYYY-MM-DD").toDate();
-      dates.push({ name: pattern.name, date });
-      summary = summary.replace(dateMatch[0], "").trim();
-    }
-  }
-  if (dateOverride) {
-    dates.push({ name: "Due", date: dateOverride });
-  }
-  if (dates.length === 0) {
-    const genericDateMatch = summary.match(/(\d{4}-\d{2}-\d{2})/);
-    if (genericDateMatch) {
-      const date = (0, import_obsidian5.moment)(genericDateMatch[1], "YYYY-MM-DD").toDate();
-      dates.push({ name: "Due", date });
-      summary = summary.replace(genericDateMatch[0], "").trim();
-    }
-  }
-  if (dates.length === 0)
-    return null;
-  if (settings.ignoreOldTasks) {
-    const now = new Date();
-    const thresholdDate = new Date(now.setDate(now.getDate() - settings.oldTaskInDays));
-    const isOld = dates.every((d) => d.date < thresholdDate);
-    if (isOld)
-      return null;
-  }
-  return new Task(status, dates, summary, fileUri, body, alarmOffset);
-}
-function parseInternalLinks(summary, mode) {
-  switch (mode) {
-    case "RemoveThem":
-      return summary.replace(/\[\[.*?\]\]/g, "").replace(/\[.*?\]\(.*?\)/g, "").trim();
-    case "KeepTitle":
-    case "PreferTitle":
-      summary = summary.replace(/\[\[.*?\|(.*?)\]\]/g, "$1");
-      summary = summary.replace(/\[\[(.*?)\]\]/g, "$1");
-      summary = summary.replace(/\[(.*?)\]\(.*?\)/g, "$1");
-      return summary.trim();
-    case "DoNotModifyThem":
-    default:
-      return summary;
-  }
-}
-
-// src/Service/TaskFinder.ts
-var TaskFinder = class {
-  constructor(vault) {
-    this.vault = vault;
-  }
-  async findTasks(file, listItemsCache, headings, settings) {
-    var _a;
-    const fileCachedContent = await this.vault.cachedRead(file);
-    const lines = fileCachedContent.split("\n");
-    const fileUri = "obsidian://open?vault=" + file.vault.getName() + "&file=" + file.path;
-    const isTaskLine = (line) => /(\*|-)\s*\[.?]\s*/.test(line);
-    const taskPositions = listItemsCache.map((item) => item.position.start.line).filter((lineNo) => isTaskLine(lines[lineNo]));
-    const results = [];
-    for (let i = 0; i < taskPositions.length; i++) {
-      const startLine = taskPositions[i];
-      const markdownLine = lines[startLine];
-      let bodyLines = [];
-      const nextTaskLine = i + 1 < taskPositions.length ? taskPositions[i + 1] : lines.length;
-      for (let j = startLine + 1; j < nextTaskLine; j++) {
-        const currentLine = lines[j];
-        const trimmed = currentLine.trim();
-        if (trimmed === "" && j > startLine + 1)
-          break;
-        if (trimmed === "")
-          continue;
-        if (trimmed.startsWith(">") || trimmed.startsWith("-") || trimmed.startsWith("*") || /^\s+/.test(currentLine)) {
-          bodyLines.push(trimmed);
-        } else {
-          break;
-        }
-      }
-      const body = bodyLines.join("\\n");
-      let dateOverride = null;
-      if (settings.isDayPlannerPluginFormatEnabled && headings) {
-        if (this.hasTimes(markdownLine)) {
-          const heading = headings.getHeadingForMarkdownLineNumber(startLine);
-          dateOverride = (_a = heading == null ? void 0 : heading.getDate) != null ? _a : null;
-        }
-      }
-      if (settings.isIncludeTasksWithTags) {
-        if (!this.hasTag(markdownLine, settings.includeTasksWithTags)) {
-          continue;
-        }
-      }
-      if (settings.isExcludeTasksWithTags) {
-        if (this.hasTag(markdownLine, settings.excludeTasksWithTags)) {
-          continue;
-        }
-      }
-      const task = createTaskFromLine(markdownLine, fileUri, dateOverride, body, settings);
-      if (task) {
-        results.push(task);
-      }
-    }
-    return results;
-  }
-  hasTimes(line) {
-    const timeRegExp = /\b((?<!\d{4}-\d{2}-)\d{1,2}:(\d{2})(?::\d{2})?\s*(?:[ap][m])?|(?<!\d{4}-\d{2}-)\d{1,2}\s*[ap][m])\b/gi;
-    return timeRegExp.test(line);
-  }
-  hasTag(line, tags) {
-    if (!tags.includes(" ")) {
-      return line.includes(tags);
-    }
-    return tags.split(" ").some((tag) => line.includes(tag));
-  }
-};
-
 // src/SettingsTab.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/FolderSuggest.ts
-var import_obsidian6 = require("obsidian");
-var FolderSuggest = class extends import_obsidian6.AbstractInputSuggest {
+var import_obsidian3 = require("obsidian");
+var FolderSuggest = class extends import_obsidian3.AbstractInputSuggest {
   constructor(app, textInputEl) {
     super(app, textInputEl);
+    __publicField(this, "content");
+    __publicField(this, "textInput");
+    this.textInput = textInputEl;
   }
   getSuggestions(inputStr) {
     const abstractFiles = this.app.vault.getAllLoadedFiles();
     const folders = [];
     const lowerCaseInputStr = inputStr.toLowerCase();
     abstractFiles.forEach((folder) => {
-      if (folder instanceof import_obsidian6.TFolder && folder.path.toLowerCase().contains(lowerCaseInputStr)) {
+      if (folder instanceof import_obsidian3.TFolder && folder.path.toLowerCase().includes(lowerCaseInputStr)) {
         folders.push(folder);
       }
     });
@@ -832,17 +1645,18 @@ var FolderSuggest = class extends import_obsidian6.AbstractInputSuggest {
     el.setText(folder.path);
   }
   selectSuggestion(folder) {
-    this.textInputEl.value = folder.path;
-    this.textInputEl.trigger("input");
+    this.textInput.value = folder.path;
+    this.textInput.trigger("input");
     this.close();
   }
 };
 
 // src/SettingsTab.ts
-var SettingsTab = class extends import_obsidian7.PluginSettingTab {
+var SettingsTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
-    this.plugin = plugin;
+    __publicField(this, "plugin", plugin);
+    __publicField(this, "pendingUpdates", /* @__PURE__ */ new Map());
   }
   display() {
     const { containerEl } = this;
@@ -851,217 +1665,601 @@ var SettingsTab = class extends import_obsidian7.PluginSettingTab {
     const headerText = header.createDiv({ cls: "ical-pro-header-title" });
     headerText.createEl("h2", { text: "iCal Pro" });
     headerText.createEl("span", { text: "v" + this.plugin.manifest.version, cls: "ical-pro-version" });
+    this.renderStatusCard(containerEl);
+    this.renderTaskSourceSettings(containerEl);
+    this.renderDateSettings(containerEl);
+    this.renderFilteringSettings(containerEl);
+    this.renderDestinationSettings(containerEl);
+    this.renderAdvancedSettings(containerEl);
+  }
+  renderStatusCard(containerEl) {
     const statusCard = containerEl.createDiv({ cls: "ical-pro-status-card" });
     const statusGrid = statusCard.createDiv({ cls: "ical-pro-status-grid" });
     const urlCol = statusGrid.createDiv({ cls: "ical-pro-status-col" });
     const statusTitle = urlCol.createDiv({ cls: "ical-pro-card-title" });
-    (0, import_obsidian7.setIcon)(statusTitle, "link");
+    (0, import_obsidian4.setIcon)(statusTitle, "link");
     statusTitle.createSpan({ text: " Subscription URL" });
     const urlContainer = urlCol.createDiv({ cls: "ical-url-container" });
     this.renderUrl(urlContainer);
     const syncCol = statusGrid.createDiv({ cls: "ical-pro-status-col" });
     const syncTitle = syncCol.createDiv({ cls: "ical-pro-card-title" });
-    (0, import_obsidian7.setIcon)(syncTitle, "refresh-cw");
+    (0, import_obsidian4.setIcon)(syncTitle, "refresh-cw");
     syncTitle.createSpan({ text: " Sync Status" });
     const syncInfo = syncCol.createDiv({ cls: "ical-sync-info" });
     syncInfo.createEl("div", { text: `Result: ${this.plugin.lastSyncStatus}`, cls: `ical-status-${this.plugin.lastSyncStatus.toLowerCase()}` });
     syncInfo.createEl("div", { text: `At: ${this.plugin.lastSyncTime}`, cls: "ical-sync-time" });
+    if (this.plugin.lastSyncMessage) {
+      syncInfo.createEl("div", { text: this.plugin.lastSyncMessage, cls: "ical-sync-time" });
+    }
+    const readiness = this.plugin.getSyncReadiness();
+    if (readiness.ready) {
+      syncInfo.createEl("div", { text: `Ready: ${readiness.activeDestinations.join(", ")}`, cls: "ical-sync-time" });
+    } else {
+      readiness.issues.forEach((issue) => {
+        syncInfo.createEl("div", { text: issue, cls: "ical-sync-time" });
+      });
+    }
+    const preview = this.plugin.getSyncPreview();
+    syncInfo.createEl(
+      "div",
+      {
+        text: `Preview: ${preview.exportedTaskCount} exported, ${preview.eventCount} VEVENT, ${preview.todoCount} VTODO, ${preview.filteredTaskCount} filtered`,
+        cls: "ical-sync-time"
+      }
+    );
+    preview.filteredReasons.forEach((entry) => {
+      syncInfo.createEl("div", {
+        text: `Filtered: ${entry.reason} (${entry.count})`,
+        cls: "ical-sync-time"
+      });
+    });
+    preview.todoReasons.forEach((entry) => {
+      syncInfo.createEl("div", {
+        text: `VTODO: ${entry.reason} (${entry.count})`,
+        cls: "ical-sync-time"
+      });
+    });
+    const recentResult = this.plugin.syncHistory[0];
+    if (recentResult == null ? void 0 : recentResult.destinationResults.length) {
+      recentResult.destinationResults.forEach((result) => {
+        syncInfo.createEl(
+          "div",
+          {
+            text: `${result.name}: ${result.status}${result.message ? ` - ${result.message}` : ""}`,
+            cls: "ical-sync-time"
+          }
+        );
+      });
+    }
     const syncBtn = syncCol.createEl("button", { text: "Sync Now", cls: "mod-cta ical-sync-button" });
     syncBtn.onClickEvent(async () => {
-      syncBtn.setDisabled(true);
+      syncBtn.disabled = true;
       syncBtn.setText("Syncing...");
       try {
         await this.plugin.saveCalendar();
-        new import_obsidian7.Notice("iCal Pro: Sync successful!");
-        this.display();
+        new import_obsidian4.Notice("iCal Pro: Sync successful!");
       } catch (e) {
-        new import_obsidian7.Notice("iCal Pro: Sync failed.");
+        new import_obsidian4.Notice(`iCal Pro: Sync failed. ${this.plugin.lastSyncMessage}`);
+      } finally {
         this.display();
       }
     });
-    this.addHeader(containerEl, "search", "1. Task Sources");
-    new import_obsidian7.Setting(containerEl).setName("Target Directory").setDesc("Scan tasks within this folder. Type to search.").addText((text) => {
+    const diagnosticsBtn = syncCol.createEl("button", { text: "Copy Diagnostics", cls: "ical-sync-button" });
+    diagnosticsBtn.onClickEvent(() => {
+      void navigator.clipboard.writeText(this.plugin.getDiagnosticsBundle());
+      new import_obsidian4.Notice("iCal Pro: Diagnostics copied.");
+    });
+  }
+  renderTaskSourceSettings(containerEl) {
+    this.addHeader(containerEl, "search", "1. Scope & Discovery");
+    containerEl.createEl("p", {
+      text: "Bind one source path to one category. Use multiple rules when you want different folders exported as different calendar categories.",
+      cls: "setting-item-description"
+    });
+    const rulesContainer = containerEl.createDiv({ cls: "ical-pro-source-rules" });
+    this.plugin.settings.sourceRules.forEach((rule, index) => {
+      this.renderSourceRuleSetting(rulesContainer, rule, index);
+    });
+    new import_obsidian4.Setting(containerEl).setName("Add Source Path").setDesc("Add another path/category rule.").addButton(
+      (button) => button.setButtonText("Add Path").onClick(async () => {
+        await this.plugin.updateSettings(
+          {
+            sourceRules: [...this.plugin.settings.sourceRules, { path: "/", category: "" }]
+          },
+          { rebuildIndex: true }
+        );
+        this.display();
+      })
+    );
+  }
+  renderDateSettings(containerEl) {
+    this.addHeader(containerEl, "calendar-days", "2. Scheduling & Alarms");
+    new import_obsidian4.Setting(containerEl).setName("Time-Block Logic (Day Planner)").setDesc("If enabled, treats daily note headings as dates and task times as event start points.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled).onChange(async (value) => {
+        await this.plugin.updateSettings(
+          { isDayPlannerPluginFormatEnabled: value },
+          { rebuildIndex: true }
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Sync Strategy").setDesc("Define how dated tasks are mapped. Events are time-boxed; To-Dos are status-tracked.").addDropdown((dropdown) => {
+      Object.entries(INCLUDE_EVENTS_OR_TODOS).forEach(([value, label]) => dropdown.addOption(value, label));
+      dropdown.setValue(this.plugin.settings.includeEventsOrTodos).onChange(async (value) => {
+        await this.plugin.updateSettings({ includeEventsOrTodos: value });
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("Multiple Date Handling").setDesc("How to handle tasks that contain multiple start, scheduled, or due dates.").addDropdown((dropdown) => {
+      Object.entries(HOW_TO_PROCESS_MULTIPLE_DATES).forEach(([value, label]) => dropdown.addOption(value, label));
+      dropdown.setValue(this.plugin.settings.howToProcessMultipleDates).onChange(async (value) => {
+        await this.plugin.updateSettings({ howToProcessMultipleDates: value });
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("Enable Native Notifications (VALARM)").setDesc("Include alerts in your calendar app. Use the \u23F0 emoji (e.g., - [ ] Task \u23F0 15) to set custom offsets in minutes.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.enableAlarms).onChange(async (value) => {
+        await this.plugin.updateSettings({ enableAlarms: value });
+      })
+    ).addSlider(
+      (slider) => slider.setLimits(5, 180, 5).setDynamicTooltip().setValue(this.plugin.settings.defaultAlarmOffset).onChange(async (value) => {
+        await this.plugin.updateSettings({ defaultAlarmOffset: value });
+      })
+    );
+  }
+  renderFilteringSettings(containerEl) {
+    this.addHeader(containerEl, "filter", "3. Content & Filters");
+    new import_obsidian4.Setting(containerEl).setName("Respect Tasks Global Filter").setDesc("Require these tags for a checkbox to count as a real task.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.respectGlobalTaskFilter).onChange(async (value) => {
+        await this.plugin.updateSettings({ respectGlobalTaskFilter: value }, { rebuildIndex: true });
+      })
+    ).addText(
+      (text) => text.setPlaceholder("#task").setValue(this.plugin.settings.globalTaskFilterTags).onChange(async (value) => {
+        this.scheduleUpdate(
+          "globalTaskFilterTags",
+          () => this.plugin.updateSettings(
+            { globalTaskFilterTags: value || "#task" },
+            { rebuildIndex: true }
+          )
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Category Inclusion Filter").setDesc("Only export tasks whose derived categories match these values (space separated).").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isIncludeCategoriesEnabled).onChange(async (value) => {
+        await this.plugin.updateSettings({ isIncludeCategoriesEnabled: value }, { rebuildIndex: true });
+      })
+    ).addText(
+      (text) => text.setPlaceholder("Work travel/asia").setValue(this.plugin.settings.includeCategories).onChange(async (value) => {
+        this.scheduleUpdate(
+          "includeCategories",
+          () => this.plugin.updateSettings(
+            { includeCategories: value },
+            { rebuildIndex: true }
+          )
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Category Exclusion Filter").setDesc("Hide tasks whose derived categories match these values.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isExcludeCategoriesEnabled).onChange(async (value) => {
+        await this.plugin.updateSettings({ isExcludeCategoriesEnabled: value }, { rebuildIndex: true });
+      })
+    ).addText(
+      (text) => text.setPlaceholder("Personal archive").setValue(this.plugin.settings.excludeCategories).onChange(async (value) => {
+        this.scheduleUpdate(
+          "excludeCategories",
+          () => this.plugin.updateSettings(
+            { excludeCategories: value },
+            { rebuildIndex: true }
+          )
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Tag Inclusion Filter").setDesc("Only sync tasks containing these tags (space separated).").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isIncludeTasksWithTags).onChange(async (value) => {
+        await this.plugin.updateSettings(
+          { isIncludeTasksWithTags: value },
+          { rebuildIndex: true }
+        );
+      })
+    ).addText(
+      (text) => text.setPlaceholder("#work #sync").setValue(this.plugin.settings.includeTasksWithTags).onChange(async (value) => {
+        this.scheduleUpdate(
+          "includeTasksWithTags",
+          () => this.plugin.updateSettings(
+            { includeTasksWithTags: value },
+            { rebuildIndex: true }
+          )
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Tag Exclusion Filter").setDesc("Ignore tasks containing these tags.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isExcludeTasksWithTags).onChange(async (value) => {
+        await this.plugin.updateSettings(
+          { isExcludeTasksWithTags: value },
+          { rebuildIndex: true }
+        );
+      })
+    ).addText(
+      (text) => text.setPlaceholder("#private").setValue(this.plugin.settings.excludeTasksWithTags).onChange(async (value) => {
+        this.scheduleUpdate(
+          "excludeTasksWithTags",
+          () => this.plugin.updateSettings(
+            { excludeTasksWithTags: value },
+            { rebuildIndex: true }
+          )
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Ignore Completed").setDesc("Do not sync tasks that are already marked as done.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.ignoreCompletedTasks).onChange(async (value) => {
+        await this.plugin.updateSettings({ ignoreCompletedTasks: value }, { rebuildIndex: true });
+      })
+    );
+  }
+  renderDestinationSettings(containerEl) {
+    this.addHeader(containerEl, "cloud", "4. Sync & Cloud Connectivity");
+    new import_obsidian4.Setting(containerEl).setName("Calendar Filename").setDesc("Used for both local storage and GitHub Gist sync (e.g., obsidian.ics).").addText(
+      (text) => text.setPlaceholder("obsidian.ics").setValue(this.plugin.settings.filename).onChange(async (value) => {
+        this.scheduleUpdate("filename", async () => {
+          await this.plugin.updateSettings({ filename: value || "obsidian.ics" });
+          this.updateUrlDisplay();
+        });
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Save to Local File").setDesc("Export the .ics file to your vault. Ideal for iCloud or local-first workflows.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isSaveToFileEnabled).onChange(async (value) => {
+        await this.plugin.updateSettings({ isSaveToFileEnabled: value });
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Vault Storage Path").setDesc("Specify the folder for the local .ics file relative to vault root.").addText((text) => {
       new FolderSuggest(this.app, text.inputEl);
-      text.setPlaceholder("Search folder...").setValue(this.plugin.settings.rootPath).onChange(async (value) => {
-        this.plugin.settings.rootPath = (0, import_obsidian7.normalizePath)(value);
-        await this.plugin.saveSettings();
+      text.setValue(this.plugin.settings.savePath).onChange(async (value) => {
+        this.scheduleUpdate(
+          "savePath",
+          () => this.plugin.updateSettings({ savePath: (0, import_obsidian4.normalizePath)(value) || "/" })
+        );
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("Sync to GitHub Gist").setDesc("Push your calendar to a private Gist for public or multi-device subscription.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isSaveToGistEnabled).onChange(async (value) => {
+        await this.plugin.updateSettings({ isSaveToGistEnabled: value });
         this.updateUrlDisplay();
-      });
-    });
-    this.addHeader(containerEl, "calendar-days", "2. Date & Alarm Logic");
-    new import_obsidian7.Setting(containerEl).setName("Day Planner Mode").setDesc("Heading = Date, Line = Time.").addToggle((toggle) => toggle.setValue(this.plugin.settings.isDayPlannerPluginFormatEnabled).onChange(async (value) => {
-      this.plugin.settings.isDayPlannerPluginFormatEnabled = value;
-      await this.plugin.saveSettings();
-      this.display();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Enable Alarms").setDesc("Include VALARM alerts in the calendar.").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableAlarms).onChange(async (value) => {
-      this.plugin.settings.enableAlarms = value;
-      await this.plugin.saveSettings();
-    }));
-    this.addHeader(containerEl, "filter", "3. Filtering Rules");
-    new import_obsidian7.Setting(containerEl).setName("Include Tags").setDesc("Only sync tasks containing these tags (space separated).").addToggle((toggle) => toggle.setValue(this.plugin.settings.isIncludeTasksWithTags).onChange(async (v) => {
-      this.plugin.settings.isIncludeTasksWithTags = v;
-      await this.plugin.saveSettings();
-    })).addText((text) => text.setPlaceholder("#work #sync").setValue(this.plugin.settings.includeTasksWithTags).onChange(async (v) => {
-      this.plugin.settings.includeTasksWithTags = v;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Exclude Tags").setDesc("Ignore tasks with these tags.").addToggle((toggle) => toggle.setValue(this.plugin.settings.isExcludeTasksWithTags).onChange(async (v) => {
-      this.plugin.settings.isExcludeTasksWithTags = v;
-      await this.plugin.saveSettings();
-    })).addText((text) => text.setPlaceholder("#private").setValue(this.plugin.settings.excludeTasksWithTags).onChange(async (v) => {
-      this.plugin.settings.excludeTasksWithTags = v;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Ignore Completed").addToggle((toggle) => toggle.setValue(this.plugin.settings.ignoreCompletedTasks).onChange(async (v) => {
-      this.plugin.settings.ignoreCompletedTasks = v;
-      await this.plugin.saveSettings();
-    }));
-    this.addHeader(containerEl, "cloud", "4. Save Destinations");
-    new import_obsidian7.Setting(containerEl).setName("Save to Local File").setDesc("Save the .ics file to your vault storage (best for iCloud/Dropbox).").addToggle((toggle) => toggle.setValue(this.plugin.settings.isSaveToFileEnabled).onChange(async (v) => {
-      this.plugin.settings.isSaveToFileEnabled = v;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Local Save Path").setDesc("Specify a folder for the local .ics file.").addText((text) => {
-      new FolderSuggest(this.app, text.inputEl);
-      text.setValue(this.plugin.settings.savePath).onChange(async (v) => {
-        this.plugin.settings.savePath = (0, import_obsidian7.normalizePath)(v);
-        await this.plugin.saveSettings();
-      });
-    });
-    new import_obsidian7.Setting(containerEl).setName("Sync to GitHub Gist").addToggle((toggle) => toggle.setValue(this.plugin.settings.isSaveToGistEnabled).onChange(async (v) => {
-      this.plugin.settings.isSaveToGistEnabled = v;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("GitHub Username").addText((text) => text.setValue(this.plugin.settings.githubUsername).onChange(async (v) => {
-      this.plugin.settings.githubUsername = v;
-      await this.plugin.saveSettings();
-      this.updateUrlDisplay();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Gist ID").addText((text) => text.setValue(this.plugin.settings.githubGistId).onChange(async (v) => {
-      this.plugin.settings.githubGistId = v;
-      await this.plugin.saveSettings();
-      this.updateUrlDisplay();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Personal Access Token").addText((text) => text.setPlaceholder("ghp_...").setValue(this.plugin.settings.githubPersonalAccessToken).onChange(async (v) => {
-      this.plugin.settings.githubPersonalAccessToken = v;
-      await this.plugin.saveSettings();
-    }));
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("GitHub Username").setDesc("Used to build the raw subscription URL for your Gist export.").addText(
+      (text) => text.setValue(this.plugin.settings.githubUsername).onChange(async (value) => {
+        this.scheduleUpdate("githubUsername", async () => {
+          await this.plugin.updateSettings({ githubUsername: value });
+          this.updateUrlDisplay();
+        });
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Gist ID").setDesc("The unique ID at the end of your Gist URL, used as the sync target.").addText(
+      (text) => text.setValue(this.plugin.settings.githubGistId).onChange(async (value) => {
+        this.scheduleUpdate("githubGistId", async () => {
+          await this.plugin.updateSettings({ githubGistId: value });
+          this.updateUrlDisplay();
+        });
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Personal Access Token").setDesc("GitHub PAT with 'gist' scope.").addText(
+      (text) => text.setPlaceholder("ghp_...").setValue(this.plugin.settings.githubPersonalAccessToken).onChange(async (value) => {
+        this.scheduleUpdate(
+          "githubPersonalAccessToken",
+          () => this.plugin.updateSettings({ githubPersonalAccessToken: value })
+        );
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Validate Gist Connection").setDesc("Test whether the configured token and Gist ID are reachable.").addButton(
+      (button) => button.setButtonText("Validate").onClick(async () => {
+        button.setDisabled(true);
+        button.setButtonText("Checking...");
+        const result = await this.plugin.validateConnection();
+        new import_obsidian4.Notice(result.message);
+        button.setDisabled(false);
+        button.setButtonText("Validate");
+      })
+    );
+  }
+  renderAdvancedSettings(containerEl) {
     this.addHeader(containerEl, "sliders", "5. Advanced & Diagnostics");
-    new import_obsidian7.Setting(containerEl).setName("Obsidian Link Location").setDesc("Where to place the obsidian:// link.").addDropdown((dropdown) => dropdown.addOption("Both", "Both (Description & Location)").addOption("Description", "Description only").addOption("Location", "Location only").setValue(this.plugin.settings.isIncludeLinkInDescription ? "Both" : "Location").onChange(async (v) => {
-      this.plugin.settings.isIncludeLinkInDescription = v === "Both" || v === "Description";
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Debug Mode").setDesc("Enable verbose logging in the console (Ctrl+Shift+I).").addToggle((toggle) => toggle.setValue(this.plugin.settings.isDebug).onChange(async (v) => {
-      this.plugin.settings.isDebug = v;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian7.Setting(containerEl).setName("Sync Interval").addSlider((slider) => slider.setLimits(5, 120, 5).setValue(this.plugin.settings.periodicSaveInterval).setDynamicTooltip().onChange(async (v) => {
-      this.plugin.settings.periodicSaveInterval = v;
-      await this.plugin.saveSettings();
-    }));
+    new import_obsidian4.Setting(containerEl).setName("Summary Formatting").setDesc("Choose how [[Wiki Links]] and [Markdown Links] should be rendered in the calendar.").addDropdown((dropdown) => {
+      Object.entries(HOW_TO_PARSE_INTERNAL_LINKS).forEach(([value, label]) => dropdown.addOption(value, label));
+      dropdown.setValue(this.plugin.settings.howToParseInternalLinks).onChange(async (value) => {
+        await this.plugin.updateSettings(
+          { howToParseInternalLinks: value },
+          { rebuildIndex: true }
+        );
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("Obsidian Link Placement").setDesc("Where to place the 'obsidian://open' callback link in calendar entries.").addDropdown((dropdown) => {
+      Object.entries(LINK_PLACEMENT).forEach(([value, label]) => dropdown.addOption(value, label));
+      dropdown.setValue(this.plugin.settings.linkPlacement).onChange(async (value) => {
+        await this.plugin.updateSettings({ linkPlacement: value });
+      });
+    });
+    new import_obsidian4.Setting(containerEl).setName("Auto-Sync Interval").setDesc("Frequency (in minutes) at which the calendar is regenerated and pushed.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isPeriodicSaveEnabled).onChange(async (value) => {
+        await this.plugin.updateSettings({ isPeriodicSaveEnabled: value }, { rescheduleSync: true });
+      })
+    ).addSlider(
+      (slider) => slider.setLimits(5, 120, 5).setDynamicTooltip().setValue(this.plugin.settings.periodicSaveInterval).onChange(async (value) => {
+        await this.plugin.updateSettings({ periodicSaveInterval: value }, { rescheduleSync: true });
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("Debug Mode").setDesc("Enable verbose logging in the console (Ctrl+Shift+I).").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.isDebug).onChange(async (value) => {
+        await this.plugin.updateSettings({ isDebug: value });
+      })
+    );
+    containerEl.createEl("p", {
+      text: "The status card above also provides a live sync preview, per-destination result report, and a copyable diagnostics bundle for issue reports.",
+      cls: "setting-item-description"
+    });
   }
   addHeader(el, icon, text) {
     const header = el.createDiv({ cls: "ical-pro-section-header" });
     const iconEl = header.createDiv({ cls: "ical-pro-section-icon" });
-    (0, import_obsidian7.setIcon)(iconEl, icon);
+    (0, import_obsidian4.setIcon)(iconEl, icon);
     header.createEl("h3", { text });
   }
   updateUrlDisplay() {
     const container = this.containerEl.querySelector(".ical-url-container");
-    if (container) {
-      container.empty();
-      this.renderUrl(container);
-    }
+    if (!container) return;
+    container.empty();
+    this.renderUrl(container);
   }
   renderUrl(container) {
     const username = this.plugin.settings.githubUsername;
     const gistId = this.plugin.settings.githubGistId;
-    let filename = this.plugin.settings.filename || "obsidian.ics";
-    if (username && gistId) {
+    const filename = this.plugin.settings.filename || "obsidian.ics";
+    const localPath = this.plugin.settings.savePath === "/" ? filename : `${this.plugin.settings.savePath}/${filename}`;
+    if (this.plugin.settings.isSaveToGistEnabled && username && gistId) {
       const url = `https://gist.githubusercontent.com/${username}/${gistId}/raw/${filename}`;
       container.createEl("code", { text: url, cls: "ical-url-text" });
       const copyBtn = container.createEl("button", { text: "Copy URL", cls: "mod-cta" });
       copyBtn.onClickEvent(() => {
-        navigator.clipboard.writeText(url);
+        void navigator.clipboard.writeText(url);
         copyBtn.setText("Copied!");
-        setTimeout(() => copyBtn.setText("Copy URL"), 2e3);
+        window.setTimeout(() => copyBtn.setText("Copy URL"), 2e3);
       });
-    } else {
-      container.createEl("p", { text: "GitHub sync not configured.", cls: "ical-url-placeholder" });
+      return;
     }
-  }
-};
-
-// src/Service/HeadingsHelper.ts
-var import_obsidian8 = require("obsidian");
-var HeadingsHelper = class {
-  constructor(headings) {
-    this.headings = headings || [];
-  }
-  hasHeadings() {
-    return this.headings.length > 0;
-  }
-  getHeadingForMarkdownLineNumber(lineNumber) {
-    let closestHeading = null;
-    for (const heading of this.headings) {
-      if (heading.position.start.line < lineNumber) {
-        closestHeading = heading;
-      } else {
-        break;
-      }
+    if (this.plugin.settings.isSaveToFileEnabled) {
+      container.createEl("code", { text: localPath, cls: "ical-url-text" });
+      container.createEl("p", { text: "Local file export is enabled. Subscribe to this file from your calendar app.", cls: "ical-url-placeholder" });
+      return;
     }
-    if (!closestHeading)
-      return null;
-    const dateRegex = /\b(\d{4}-\d{2}-\d{2})\b/;
-    const match = closestHeading.heading.match(dateRegex);
-    if (match) {
-      const date = (0, import_obsidian8.moment)(match[1], "YYYY-MM-DD").toDate();
-      return { getDate: date };
+    container.createEl("p", { text: "No active calendar destination. Enable GitHub Gist sync or local file export.", cls: "ical-url-placeholder" });
+  }
+  scheduleUpdate(key, task, delay = 250) {
+    const existing = this.pendingUpdates.get(key);
+    if (existing !== void 0) {
+      window.clearTimeout(existing);
     }
-    return null;
+    const timeoutId = window.setTimeout(() => {
+      this.pendingUpdates.delete(key);
+      void task();
+    }, delay);
+    this.pendingUpdates.set(key, timeoutId);
+  }
+  renderSourceRuleSetting(containerEl, rule, index) {
+    new import_obsidian4.Setting(containerEl).setName(`Source Path ${index + 1}`).setDesc("Tasks in this path inherit the configured category.").addText((text) => {
+      new FolderSuggest(this.app, text.inputEl);
+      text.setPlaceholder("/").setValue(rule.path).onChange(async (value) => {
+        this.scheduleSourceRuleUpdate(index, { path: (0, import_obsidian4.normalizePath)(value) || "/" });
+      });
+    }).addText(
+      (text) => text.setPlaceholder("Work").setValue(rule.category).onChange(async (value) => {
+        this.scheduleSourceRuleUpdate(index, { category: value });
+      })
+    ).addExtraButton(
+      (button) => button.setIcon("trash").setTooltip("Remove path rule").onClick(async () => {
+        const sourceRules = this.plugin.settings.sourceRules.filter((_, ruleIndex) => ruleIndex !== index);
+        await this.plugin.updateSettings(
+          {
+            sourceRules: sourceRules.length > 0 ? sourceRules : [{ path: "/", category: "" }]
+          },
+          { rebuildIndex: true }
+        );
+        this.display();
+      })
+    );
+  }
+  scheduleSourceRuleUpdate(index, patch) {
+    this.scheduleUpdate(`source-rule-${index}`, async () => {
+      const sourceRules = this.plugin.settings.sourceRules.map(
+        (rule, ruleIndex) => ruleIndex === index ? {
+          path: patch.path !== void 0 ? patch.path : rule.path,
+          category: patch.category !== void 0 ? patch.category : rule.category
+        } : rule
+      );
+      await this.plugin.updateSettings(
+        {
+          sourceRules
+        },
+        { rebuildIndex: true }
+      );
+    });
   }
 };
 
 // src/ObsidianIcalPlugin.ts
-var ObsidianIcalPlugin = class extends import_obsidian9.Plugin {
+var ObsidianIcalPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
-    this.lastSyncStatus = "Never synced";
-    this.lastSyncTime = "-";
-    this.lastSyncMessage = "";
+    __publicField(this, "settings", DEFAULT_SETTINGS);
+    __publicField(this, "lastSyncStatus", "Never synced");
+    __publicField(this, "lastSyncTime", "-");
+    __publicField(this, "lastSyncMessage", "");
+    __publicField(this, "syncHistory", []);
+    __publicField(this, "settingsStore", new PluginSettingsStore(this));
+    __publicField(this, "syncReadinessService", new SyncReadinessService());
+    __publicField(this, "connectionValidationService", new ConnectionValidationService(import_obsidian5.requestUrl));
+    __publicField(this, "syncAutomationService", new SyncAutomationService(this.syncReadinessService));
+    __publicField(this, "diagnosticsService", new DiagnosticsService());
+    __publicField(this, "icalService", new IcalService());
+    __publicField(this, "syncPreviewService", new SyncPreviewService(this.icalService));
+    __publicField(this, "taskIndex", new TaskIndex());
+    __publicField(this, "taskIdentityService", new TaskIdentityService());
+    __publicField(this, "taskFinder");
+    __publicField(this, "taskIndexService");
+    __publicField(this, "syncService");
+    __publicField(this, "syncIntervalId", null);
   }
   async onload() {
-    console.log("Loading Obsidian iCal Plugin Pro");
     await this.loadSettings();
     logger(this.settings.isDebug);
-    this.taskIndex = new TaskIndex();
+    logger().log("Loading Obsidian iCal Plugin Pro");
     this.taskFinder = new TaskFinder(this.app.vault);
-    this.icalService = new IcalService();
-    this.fileClient = new FileClient(this.app.vault);
-    this.gistClient = new GistClient(this.settings);
-    await this.buildIndex();
-    this.registerEvent(this.app.vault.on("modify", (file) => this.updateFileInIndex(file)));
-    this.registerEvent(this.app.vault.on("delete", (file) => this.removeFileFromIndex(file)));
-    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.renameFileInIndex(file, oldPath)));
-    this.addRibbonIcon("calendar-with-checkmark", "iCal Pro: Sync Now", async () => {
-      new import_obsidian9.Notice("iCal Pro: Starting synchronization...");
-      try {
-        await this.saveCalendar();
-        new import_obsidian9.Notice("iCal Pro: Sync completed successfully!");
-      } catch (error) {
-        new import_obsidian9.Notice("iCal Pro: Sync failed.");
-        console.error(error);
+    this.taskIndexService = new TaskIndexingService(
+      this.app.vault,
+      this.app.metadataCache,
+      this.taskIndex,
+      this.taskFinder,
+      this.taskIdentityService
+    );
+    this.syncService = new CalendarSyncService(this.icalService, [
+      new FileClient(this.app.vault),
+      new GistClient()
+    ]);
+    await this.rebuildIndex();
+    await this.saveSettings();
+    this.registerVaultEvents();
+    this.syncIntervalId = this.syncAutomationService.configurePeriodicSync(
+      this.settings,
+      () => this.saveCalendar(),
+      (intervalId) => this.registerInterval(intervalId),
+      this.syncIntervalId
+    );
+    this.registerUi();
+    this.registerCommands();
+    void this.syncAutomationService.runStartupSyncIfReady(this.settings, () => this.saveCalendar());
+  }
+  async updateSettings(patch, options = {}) {
+    const previousSettings = { ...this.settings };
+    Object.assign(this.settings, patch);
+    await this.saveSettings();
+    if (options.rebuildIndex) {
+      await this.rebuildIndex();
+    } else {
+      await this.taskIndexService.handleSettingsChange(previousSettings, this.settings);
+    }
+    if (options.rescheduleSync) {
+      this.syncIntervalId = this.syncAutomationService.configurePeriodicSync(
+        this.settings,
+        () => this.saveCalendar(),
+        (intervalId) => this.registerInterval(intervalId),
+        this.syncIntervalId
+      );
+    }
+  }
+  async rebuildIndex() {
+    await this.taskIndexService.rebuild(this.settings);
+    await this.saveSettings();
+  }
+  async updateFileInIndex(file) {
+    if (!(file instanceof import_obsidian5.TFile)) return;
+    await this.taskIndexService.indexFile(file, this.settings);
+    await this.saveSettings();
+  }
+  removeFileFromIndex(file) {
+    if (file instanceof import_obsidian5.TFile) {
+      this.taskIndexService.removeFile(file.path);
+      void this.saveSettings();
+    }
+  }
+  async renameFileInIndex(file, oldPath) {
+    if (!(file instanceof import_obsidian5.TFile)) return;
+    await this.taskIndexService.renameFile(file, oldPath, this.settings);
+    await this.saveSettings();
+  }
+  async saveCalendar() {
+    const timestamp = /* @__PURE__ */ new Date();
+    try {
+      const readiness = this.syncReadinessService.evaluate(this.settings);
+      if (!readiness.ready) {
+        throw new Error(readiness.issues.join(" "));
       }
+      const result = await this.syncService.sync(
+        this.taskIndexService.getAllTasks(),
+        this.taskIndexService.getIndexStats(),
+        this.settings
+      );
+      this.lastSyncStatus = "Success";
+      this.lastSyncTime = timestamp.toLocaleTimeString();
+      this.lastSyncMessage = `Synced ${result.preview.exportedTaskCount} tasks to ${result.destinations.join(", ")}`;
+      this.recordSyncHistory({
+        status: "success",
+        timestamp: timestamp.toISOString(),
+        message: this.lastSyncMessage,
+        destinationResults: result.destinationResults
+      });
+    } catch (error) {
+      this.lastSyncTime = timestamp.toLocaleTimeString();
+      if (error instanceof SyncExecutionError) {
+        const hasSuccess = error.result.destinationResults.some((entry) => entry.status === "success");
+        this.lastSyncStatus = hasSuccess ? "Partial" : "Failed";
+        this.lastSyncMessage = error.result.destinationResults.map((entry) => `${entry.name}: ${entry.status}${entry.message ? ` (${entry.message})` : ""}`).join("; ");
+        this.recordSyncHistory({
+          status: hasSuccess ? "partial" : "failed",
+          timestamp: timestamp.toISOString(),
+          message: this.lastSyncMessage,
+          destinationResults: error.result.destinationResults
+        });
+      } else {
+        this.lastSyncStatus = "Failed";
+        this.lastSyncMessage = this.getErrorMessage(error);
+        this.recordSyncHistory({
+          status: "failed",
+          timestamp: timestamp.toISOString(),
+          message: this.lastSyncMessage,
+          destinationResults: []
+        });
+      }
+      console.error("iCal Pro: Sync Error Details:", error);
+      throw error;
+    } finally {
+      await this.saveSettings();
+    }
+  }
+  async validateConnection() {
+    return this.connectionValidationService.validateGist(this.settings);
+  }
+  getSyncReadiness() {
+    return this.syncReadinessService.evaluate(this.settings);
+  }
+  getSyncPreview() {
+    return this.syncPreviewService.build(
+      this.taskIndexService.getAllTasks(),
+      this.taskIndexService.getIndexStats(),
+      this.settings
+    );
+  }
+  getDiagnosticsBundle() {
+    return this.diagnosticsService.build({
+      settings: this.settings,
+      readiness: this.getSyncReadiness(),
+      preview: this.getSyncPreview(),
+      recentSyncResults: this.syncHistory
+    });
+  }
+  registerVaultEvents() {
+    this.registerEvent(this.app.vault.on("modify", (file) => void this.updateFileInIndex(file)));
+    this.registerEvent(this.app.vault.on("delete", (file) => this.removeFileFromIndex(file)));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => void this.renameFileInIndex(file, oldPath)));
+    this.registerEvent(this.app.vault.on("create", (file) => void this.updateFileInIndex(file)));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => void this.updateFileInIndex(file)));
+  }
+  registerUi() {
+    this.addRibbonIcon("calendar-with-checkmark", "iCal Pro: Sync Now", async () => {
+      await this.runSyncWithNotice("iCal Pro: Starting synchronization...", "iCal Pro: Sync completed successfully!");
     });
     this.addSettingTab(new SettingsTab(this.app, this));
+  }
+  registerCommands() {
     this.addCommand({
       id: "save-calendar",
       name: "Save and Sync calendar",
       callback: async () => {
-        new import_obsidian9.Notice("iCal Pro: Syncing...");
-        await this.saveCalendar();
-        new import_obsidian9.Notice("iCal Pro: Sync done.");
+        await this.runSyncWithNotice("iCal Pro: Syncing...", "iCal Pro: Sync done.");
       }
     });
     this.addCommand({
@@ -1069,101 +2267,43 @@ var ObsidianIcalPlugin = class extends import_obsidian9.Plugin {
       name: "Open Gist URL in browser",
       callback: () => {
         const { githubUsername, githubGistId } = this.settings;
-        if (githubUsername && githubGistId) {
-          const url = `https://gist.github.com/${githubUsername}/${githubGistId}`;
-          window.open(url, "_blank");
-        } else {
-          new import_obsidian9.Notice("GitHub Sync not fully configured.");
+        if (!githubUsername || !githubGistId) {
+          new import_obsidian5.Notice("GitHub Sync not fully configured.");
+          return;
         }
+        window.open(`https://gist.github.com/${githubUsername}/${githubGistId}`, "_blank");
       }
     });
-    if (this.settings.isPeriodicSaveEnabled) {
-      this.registerInterval(window.setInterval(() => this.saveCalendar(), this.settings.periodicSaveInterval * 60 * 1e3));
-    }
   }
-  async buildIndex() {
-    logger().log("Building initial task index...");
-    const files = this.app.vault.getMarkdownFiles();
-    for (const file of files) {
-      await this.updateFileInIndex(file);
-    }
-  }
-  async updateFileInIndex(file) {
-    if (!(file instanceof import_obsidian9.TFile))
-      return;
-    if (this.settings.rootPath !== "/" && !file.path.startsWith(this.settings.rootPath)) {
-      this.taskIndex.removeFile(file.path);
-      return;
-    }
-    const cache = this.app.metadataCache.getFileCache(file);
-    if (cache && cache.listItems) {
-      const headingsHelper = cache.headings ? new HeadingsHelper(cache.headings) : null;
-      const tasks = await this.taskFinder.findTasks(file, cache.listItems, headingsHelper, this.settings);
-      this.taskIndex.setTasks(file.path, tasks);
-    }
-  }
-  removeFileFromIndex(file) {
-    if (file instanceof import_obsidian9.TFile) {
-      this.taskIndex.removeFile(file.path);
-    }
-  }
-  async renameFileInIndex(file, oldPath) {
-    this.taskIndex.removeFile(oldPath);
-    await this.updateFileInIndex(file);
-  }
-  async saveCalendar() {
+  async runSyncWithNotice(startMessage, successMessage) {
+    new import_obsidian5.Notice(startMessage);
     try {
-      const allTasks = this.taskIndex.getAllTasks();
-      const calendar = this.icalService.getCalendar(allTasks, this.settings);
-      if (this.settings.isSaveToFileEnabled) {
-        await this.fileClient.save(calendar);
-      }
-      if (this.settings.isSaveToGistEnabled) {
-        await this.gistClient.save(calendar);
-      }
-      this.lastSyncStatus = "Success";
-      this.lastSyncTime = new Date().toLocaleTimeString();
-      this.lastSyncMessage = "";
+      await this.saveCalendar();
+      new import_obsidian5.Notice(successMessage);
     } catch (e) {
-      this.lastSyncStatus = "Failed";
-      this.lastSyncTime = new Date().toLocaleTimeString();
-      this.lastSyncMessage = e.message || String(e);
-      console.error("iCal Pro: Sync Error Details:", e);
-      throw e;
-    }
-  }
-  async validateConnection() {
-    const { githubPersonalAccessToken, githubGistId } = this.settings;
-    if (!githubPersonalAccessToken || !githubGistId) {
-      return { success: false, message: "Token or Gist ID missing." };
-    }
-    try {
-      const response = await (0, import_obsidian9.requestUrl)({
-        url: `https://api.github.com/gists/${githubGistId}`,
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${githubPersonalAccessToken}`,
-          "Accept": "application/vnd.github.v3+json"
-        }
-      });
-      if (response.status === 200) {
-        return { success: true, message: "Connection successful! Gist found." };
-      } else {
-        return { success: false, message: `GitHub returned status ${response.status}` };
-      }
-    } catch (e) {
-      return { success: false, message: "Network error or invalid Token/Gist ID." };
+      new import_obsidian5.Notice(`iCal Pro: Sync failed. ${this.lastSyncMessage}`);
     }
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const raw = await this.settingsStore.load();
+    this.settings = migrateSettings(raw);
+    this.taskIdentityService = new TaskIdentityService(this.settingsStore.loadTaskIdentityState(raw));
+    this.syncHistory = this.settingsStore.loadSyncHistory(raw);
   }
   async saveSettings() {
-    await this.saveData(this.settings);
+    await this.settingsStore.save(this.settings, this.taskIndexService.getTaskIdentityState(), this.syncHistory);
     logger(this.settings.isDebug);
+  }
+  recordSyncHistory(entry) {
+    this.syncHistory = [entry, ...this.syncHistory].slice(0, 10);
+  }
+  getErrorMessage(error) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
   }
 };
 
 // src/main.ts
 var main_default = ObsidianIcalPlugin;
-module.exports = __toCommonJS(main_exports);

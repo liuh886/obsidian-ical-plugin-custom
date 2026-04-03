@@ -1,59 +1,91 @@
 # iCal Pro for Obsidian
 
-**Bridge the gap between AI-driven task management and your global calendar.**
+Turn Obsidian tasks into standards-compliant calendar feeds for local `.ics` files or GitHub Gist subscriptions.
 
-iCal Pro is a professional-grade synchronization engine that turns your Obsidian tasks into live, synced calendar events. It is designed for scale, precision, and cross-platform flexibility.
+## What It Does
 
----
+- Exports timed tasks as `VEVENT`
+- Exports dated tasks without time as `VTODO`
+- Exports undated tasks as floating `VTODO`
+- Supports Day Planner style date inheritance from headings and daily note filenames
+- Syncs to a vault file or GitHub Gist
+- Preserves Obsidian deep links back to source notes
 
-## 🔄 The Pro Workflow
+## Current Feature Set
 
-```mermaid
-graph LR
-    A[AI Agent / Manual Note] -->|Task Created| B(Obsidian Vault)
-    B -->|Incremental Sync| C{iCal Pro Engine}
-    C -->|Local Save| D[iCloud / Dropbox / Drive]
-    C -->|Cloud Sync| E[GitHub Gist]
-    D --> F((Global Calendar))
-    E --> F
-    F -->|Google| G[Google Calendar]
-    F -->|Apple| H[Apple Calendar]
-    F -->|Outlook| I[Microsoft Outlook]
-    F -->|Other| J[Proton, Thunderbird, etc.]
-```
+- Multi-source export rules: bind multiple vault paths to calendar categories
+- Filtering: global task filter, include/exclude tags, include/exclude categories
+- Task fidelity:
+  - priority mapping from Obsidian Tasks priority emoji to RFC 5545 `PRIORITY`
+  - recurrence mapping for common `every ...` patterns to `RRULE`
+  - task lifecycle mapping for `todo / in-progress / cancelled / completed`
+  - optional `VALARM` export
+- Rich parsing:
+  - task body capture from lists, indented lines, and blockquotes
+  - callout/blockquote task support such as `> - [ ] 09:00 ...`
+  - summary and description sanitization for Obsidian / Dataview syntax
+- Operability:
+  - startup sync and periodic sync
+  - sync preview with exported / filtered / `VEVENT` / `VTODO` counts
+  - destination-by-destination sync result reporting
+  - copyable diagnostics bundle with redacted settings and recent sync history
+  - explanations for filtered tasks and `VTODO` downgrade reasons
 
----
+## Calendar Semantics
 
-## 🌟 Core Functions
-- **Automated Scheduling**: Parses tasks with standard dates or emojis (`📅`, `🛫`, `⏳`).
-- **Rich Context Capture**: Intelligently extracts notes, lists, or blockquotes *under* your tasks.
-- **Instant Performance**: O(1) Incremental Indexing means zero lag on massive vaults.
-- **Universal Linking**: Direct `obsidian://` links embedded in events for one-click navigation.
-- **Systematic Timezones**: Uses "Floating Time" and `X-WR-TIMEZONE` for global accuracy.
+- Timed task with date -> `VEVENT`
+- Dated task without time -> `VTODO`
+- Task without date -> floating `VTODO`
 
-## 🛠️ Advanced Features
-- **Flexible Destinations**: Choose between GitHub Gist sync or local file saving (perfect for private sync services).
-- **Deep Filtering**: Include or exclude tasks using multiple tags.
-- **Smart Alarms**: Recognize `⏰` symbols to set native calendar alerts.
-- **Link Customization**: Choose where your Obsidian links appear (Description, Location, or Both).
+This is the default behavior in `EventsAndTodos` mode.
 
-## ✅ Compatible Calendars
-iCal Pro generates RFC 5545 compliant `.ics` files, compatible with:
-- **Google Calendar** (via Gist URL subscription)
-- **Apple Calendar** (iOS, iPadOS, macOS)
-- **Microsoft Outlook** (Desktop & Web)
-- **Proton Calendar**
-- **Thunderbird**
-- **Any application supporting iCalendar subscriptions.**
+## Compatible Calendars
 
----
+iCal Pro produces RFC 5545 `.ics` output intended to work with:
 
-## ⚙️ Getting Started
+- Google Calendar subscription
+- Apple Calendar
+- Outlook
+- Proton Calendar
+- Thunderbird
+- Other clients that support iCalendar subscriptions
 
-1. **Install**: Use [BRAT](https://github.com/TfTHacker/obsidian42-brat) and add `liuh886/obsidian-ical-plugin-pro`.
-2. **Configure**: Enter your sync details in the "iCal Pro" settings tab.
-3. **Verify**: Use the **"Sync Now"** button in settings to trigger your first export.
-4. **Subscribe**: Copy the URL or file path and add it to your preferred calendar app.
+Client support for `VTODO` varies. Apple-oriented ecosystems usually handle `VTODO` better than Google Calendar.
 
-## 📄 License
-MIT | Re-architected for Pro Workflows by [liuh886](https://github.com/liuh886).
+## Getting Started
+
+1. Install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) using `liuh886/obsidian-ical-plugin-pro`
+2. Open the `iCal Pro` settings tab
+3. Add at least one source path rule
+4. Enable at least one destination:
+   - local vault file export
+   - GitHub Gist sync
+5. If you use Gist, fill in username, Gist ID, and PAT, then click `Validate`
+6. Click `Sync Now`
+7. Subscribe to the generated raw Gist URL or local `.ics` file
+
+## Settings Highlights
+
+- `Scope & Discovery`: source path to category mapping
+- `Scheduling & Alarms`: Day Planner mode, sync strategy, multi-date handling, alarms
+- `Content & Filters`: task tag/category filters and completion filtering
+- `Sync & Cloud Connectivity`: filename, local path, Gist sync, validation
+- `Advanced & Diagnostics`: link formatting, auto-sync, debug mode, diagnostics workflow
+
+The status card in settings shows:
+
+- readiness state
+- sync preview
+- latest per-destination sync result
+- diagnostics copy action
+
+## Development
+
+- `npm run build`
+- `npm run typecheck`
+- `npm run test:smoke`
+- `npm run validate`
+
+## License
+
+MIT

@@ -1,47 +1,26 @@
-# Implementation Tasks
+# Product Roadmap
 
-## Phase 1: Project Setup & Tools
-- [ ] 1.1 Complete the `src/` directory by adding `main.ts` and `Settings.ts` (skeleton or refactored from existing `main.js`) so the plugin can actually compile via `esbuild`.
-- [ ] 1.2 Implement a robust `ICalBuilder` class in `src/Service/ICalBuilder.ts` to replace manual string concatenation, handling RFC 5545 75-character line folding and CRLF line breaks.
+This file tracks forward-looking work only. Historical re-architecture tasks have been completed and removed so the roadmap stays useful.
 
-## Phase 2: Performance & Caching (Incremental Indexing)
-- [ ] 2.1 Create `src/Service/TaskIndex.ts` to manage a memory cache `Map<string, Task[]>` mapping file paths to their parsed tasks.
-- [ ] 2.2 Wire up Vault event listeners (`app.vault.on('modify'`, `delete`, `rename`) in the plugin's `onload()` method to update `TaskIndex` incrementally instead of scanning all files every time.
-- [ ] 2.3 Refactor the main export logic to read directly from `TaskIndex` instead of triggering a full vault scan.
+## P0: Trust And Operability
+- [x] Add a sync preview that shows total exported tasks, `VEVENT` count, `VTODO` count, and filtered tasks before writing.
+- [x] Add a post-sync result report in the settings UI with destination-by-destination status.
+- [x] Add an explicit diagnostics bundle for issue reporting, including active settings, readiness checks, and recent sync outcomes.
+- [x] Unify export filtering into a single application-layer policy so global filter, tag rules, and category rules are not split between parsing and indexing.
+- [x] Remove `rootPath` as a normal runtime decision source and treat `sourceRules` as the only active scope model after migration.
+- [x] Slim the plugin façade further by moving connection validation and sync scheduling strategy into application services.
 
-## Phase 3: Parsing Engine & iCal Generation
-- [ ] 3.1 Refactor `TaskFinder.ts` to feed into `TaskIndex`. Ensure the multi-line description parsing remains intact.
-- [ ] 3.2 Refactor `IcalService.ts` to use the new `ICalBuilder` to safely generate the ICS content (no raw `\r\n` concatenations). Ensure `X-WR-TIMEZONE` and ALTREP cleanup logic is preserved.
+## P1: Daily Notes And Planning Depth
+- [ ] Expand Day Planner support with clearer preview and validation for heading date inheritance and task line times.
+- [x] Add better explanations for why a task was filtered out or downgraded to `VTODO`.
+- [ ] Support exporting multiple calendars by rule set, for example by tag or folder.
 
-## Phase 4: Final Assembly & Test
-- [ ] 4.1 Update `package.json` scripts if necessary.
-- [ ] 4.2 Run `npm install` and `npm run build` to verify the TypeScript compiles correctly into `main.js`.
-- [ ] 4.3 Update `README.md` to reflect the new architecture.
+## P2: Advanced Task Fidelity
+- [ ] Deepen alarm support and document how calendar clients interpret reminders differently.
+- [ ] Extend task metadata mapping for priorities, categories, and completion progress where calendar clients support it.
+- [ ] Add optional per-destination formatting knobs only after preview and diagnostics are in place.
 
-## Phase 5: Community Plugin Submission Readiness
-- [ ] 5.1 Rename plugin ID in `manifest.json` from `ical` to `obsidian-ical-plugin-pro` (or similar) to avoid conflicts in the Obsidian Plugin Store.
-- [ ] 5.2 Ensure `LICENSE` is MIT and attribute original author.
-- [ ] 5.3 Implement comprehensive `README.md` with configuration guides.
-- [ ] 5.4 Run Linting and fix all TypeScript errors.
-- [ ] 5.5 Submit to [Obsidian Releases](https://github.com/obsidianmd/obsidian-releases).
-
-## Phase 6: Todo & Alarm Enhancements
-- [ ] 6.1 **VALARM Support in ICalBuilder**: Update `ICalBuilder.ts` to support nested `VALARM` components (`beginAlarm`, `endAlarm`, `TRIGGER`, `ACTION`).
-- [ ] 6.2 **Alarm Parsing**: Update `TaskFactory.ts` to recognize alarm triggers in markdown (e.g., `⏰ 15m` means alert 15 minutes before start).
-- [ ] 6.3 **Priority Mapping**: Implement logic to map Obsidian task priorities (`⏫`, `🔼`, `🔽`) to iCalendar `PRIORITY` values (1-9).
-- [ ] 6.4 **Global Alarm Settings**: Add settings to `Settings.ts` and `SettingsTab.ts` for default alarm offsets (e.g., "Always remind me 10 mins before events").
-- [ ] 6.5 **Advanced VTODO metadata**: Enhance `IcalService.ts` to include more VTODO specific properties like `PERCENT-COMPLETE` or `CATEGORIES` based on tags.
-
-## Phase 7: Automation & Command Refinement
-- [ ] 7.1 **Parameterize `sync.ps1`**: Update the PowerShell script to support dynamic vault names via command-line arguments (defaulting to current).
-- [ ] 7.2 **Enhanced Command Notifications**: Add `Notice` feedback to the `Save calendar` command (Starting/Success/Failure) to support visual confirmation during manual or automated triggers.
-- [ ] 7.3 **Open Gist URL Command**: Implement a new Command Palette entry to quickly open the configured Gist URL in the browser.
-- [ ] 7.4 **CLI Sync Status Feedback**: Implement a `sync-result.json` file or enhanced logging in the plugin folder to allow CLI scripts to verify the success of a background sync.
-- [ ] 7.5 **Gist Export Logic (Critical Fix)**: Actually implement the Gist upload logic in a new `GistClient.ts` (currently settings exist but the functional code is missing).
-
-## Phase 8: Feature Parity & User Control
-- [ ] 8.1 **Local Save UI**: Implement toggle and path/filename/extension inputs in `SettingsTab.ts` to allow users to save `.ics` files directly to their vault (iCloud/Dropbox friendly).
-- [ ] 8.2 **Tag Filtering UI**: Add "Include Tags" and "Exclude Tags" text fields to `SettingsTab.ts`. Refactor `TaskFinder.ts` to support multiple tags (comma-separated).
-- [ ] 8.3 **Obsidian Link Location**: Replace the simple `isIncludeLinkInDescription` toggle with a dropdown or multiple toggles to place `obsidian://` links in `DESCRIPTION`, `LOCATION`, or both.
-- [ ] 8.4 **Debug Mode Toggle**: Add a visible "Debug Mode" toggle in settings to enable/disable verbose logging to the Obsidian console.
-- [ ] 8.5 **Compatibility Documentation**: Update the settings UI with a help section listing compatible platforms (Google, Apple, Outlook, Proton) and their sync behaviors (e.g., Google's 24h cache).
+## P3: Open Source Excellence
+- [ ] Keep README, README_zh, DESIGN, and smoke tests synchronized whenever product behavior changes.
+- [ ] Add fixture-based parser examples as contributor-facing documentation.
+- [ ] Publish a lightweight release checklist for maintainers built around `npm run validate`.

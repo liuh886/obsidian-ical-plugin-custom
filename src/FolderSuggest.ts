@@ -2,9 +2,11 @@ import { TFolder, AbstractInputSuggest, App } from "obsidian";
 
 export class FolderSuggest extends AbstractInputSuggest<TFolder> {
     content: TFolder[];
+    private readonly textInput: HTMLInputElement;
 
     constructor(app: App, textInputEl: HTMLInputElement) {
         super(app, textInputEl);
+        this.textInput = textInputEl;
     }
 
     getSuggestions(inputStr: string): TFolder[] {
@@ -13,7 +15,7 @@ export class FolderSuggest extends AbstractInputSuggest<TFolder> {
         const lowerCaseInputStr = inputStr.toLowerCase();
 
         abstractFiles.forEach((folder: any) => {
-            if (folder instanceof TFolder && folder.path.toLowerCase().contains(lowerCaseInputStr)) {
+            if (folder instanceof TFolder && folder.path.toLowerCase().includes(lowerCaseInputStr)) {
                 folders.push(folder);
             }
         });
@@ -26,8 +28,8 @@ export class FolderSuggest extends AbstractInputSuggest<TFolder> {
     }
 
     selectSuggestion(folder: TFolder): void {
-        this.textInputEl.value = folder.path;
-        this.textInputEl.trigger("input");
+        this.textInput.value = folder.path;
+        this.textInput.trigger("input");
         this.close();
     }
 }
