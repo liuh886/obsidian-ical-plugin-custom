@@ -5,3 +5,6 @@ node_modules
 .env
 .history
 data.json
+*.ics
+TASKS.md
+DESIGN.md

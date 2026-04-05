@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.1.0] - 2024-04-02
+## [2.1.0] - 2026-04-06
 - Refactor dependency injection for `FileClient`.
 - Stable UIDs for tasks.
 - Improved Day Planner integration.

@@ -20,6 +20,20 @@
     margin-left: 10px;
 }
 
+.ical-pro-author {
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+.ical-pro-author a {
+    color: var(--text-accent);
+    text-decoration: none;
+}
+
+.ical-pro-author a:hover {
+    text-decoration: underline;
+}
+
 /* --- Status Card Grid --- */
 .ical-pro-status-card {
     background-color: var(--background-secondary);
