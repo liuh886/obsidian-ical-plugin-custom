@@ -79,6 +79,18 @@ The status card in settings shows:
 - latest per-destination sync result
 - diagnostics copy action
 
+## Debugging & Logs
+
+If you encounter issues, you can enable verbose logging:
+
+1. Open **Settings** > **iCal Pro**.
+2. Scroll to the **Advanced & Diagnostics** section.
+3. Toggle **Debug Mode** to **ON**.
+4. Open the Obsidian developer console (press `Ctrl+Shift+I` on Windows/Linux or `Cmd+Option+I` on macOS).
+5. Look for logs prefixed with `[info][ical]` or `iCal Pro:`.
+
+You can also use the **Copy Diagnostics** button in the status card to generate a redacted summary of your configuration and recent sync history to include in bug reports.
+
 ## Development
 
 - `npm run build`
