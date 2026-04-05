@@ -1665,6 +1665,19 @@ var SettingsTab = class extends import_obsidian4.PluginSettingTab {
     const headerText = header.createDiv({ cls: "ical-pro-header-title" });
     headerText.createEl("h2", { text: "iCal Pro" });
     headerText.createEl("span", { text: "v" + this.plugin.manifest.version, cls: "ical-pro-version" });
+    const authorInfo = header.createDiv({ cls: "ical-pro-author" });
+    authorInfo.createSpan({ text: "by " });
+    authorInfo.createEl("a", {
+      text: "liuh886",
+      href: "https://github.com/liuh886",
+      cls: "ical-pro-author-link"
+    });
+    authorInfo.createSpan({ text: " | " });
+    authorInfo.createEl("a", {
+      text: "GitHub Repository",
+      href: "https://github.com/liuh886/obsidian-ical-plugin-pro",
+      cls: "ical-pro-repo-link"
+    });
     this.renderStatusCard(containerEl);
     this.renderTaskSourceSettings(containerEl);
     this.renderDateSettings(containerEl);
